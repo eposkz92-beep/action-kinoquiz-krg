@@ -1,0 +1,33 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 200 200" width="200" height="200">
+  <defs>
+    <radialGradient id="purpleGrad" cx="35%" cy="30%" r="75%">
+      <stop offset="0%" stop-color="#8d23b3"/>
+      <stop offset="60%" stop-color="#691689"/>
+      <stop offset="100%" stop-color="#460d5d"/>
+    </radialGradient>
+    <filter id="shadow" x="-10%" y="-10%" width="120%" height="120%">
+      <feDropShadow dx="0" dy="4" stdDeviation="4" flood-opacity="0.35"/>
+    </filter>
+  </defs>
+  <circle cx="100" cy="100" r="96" fill="url(#purpleGrad)" filter="url(#shadow)"/>
+  <circle cx="100" cy="100" r="92" fill="none" stroke="#ffc700" stroke-width="2" stroke-dasharray="8 4" opacity="0.4"/>
+  <!-- Arch/slanted КИНОКВИЗ -->
+  <g transform="rotate(-9 100 100)">
+    <text x="100" y="78" 
+          font-family="'Manrope', 'Arial Black', sans-serif" 
+          font-size="20" 
+          font-weight="900" 
+          fill="#ffffff" 
+          text-anchor="middle" 
+          letter-spacing="2.5" 
+          opacity="0.95">КИНОКВИЗ</text>
+    <!-- Big bold ACTION -->
+    <text x="100" y="146" 
+          font-family="'Impact', 'Arial Black', 'Trebuchet MS', sans-serif" 
+          font-size="68" 
+          font-weight="900" 
+          fill="#ffffff" 
+          text-anchor="middle" 
+          letter-spacing="1">ACTION</text>
+  </g>
+</svg>

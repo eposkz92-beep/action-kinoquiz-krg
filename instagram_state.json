@@ -1,0 +1,76 @@
+{
+  "version": 1,
+  "profile": "action_kinoquiz_krg",
+  "last_sync_utc": "2026-11-14T19:21:35.303121+00:00",
+  "processed_posts": {
+    "DfYHw8gsIDY": {
+      "type": "ANNOUNCEMENT",
+      "date_utc": "2026-11-05T22:38:22",
+      "title": "Вселенная Гарри Поттера",
+      "image_path": "assets/images/poster-20261105-DfYHw8gsIDY.jpg"
+    },
+    "DfsRS-0hNQ-": {
+      "type": "ANNOUNCEMENT",
+      "date_utc": "2026-11-13T18:25:43",
+      "title": "Киномарафон: 100 вопросов",
+      "image_path": "assets/images/poster-20261113-DfsRS-0hNQ-.jpg"
+    },
+    "DfdGpDnHE5G": {
+      "type": "RESULTS",
+      "date_utc": "2026-11-07T21:03:55",
+      "title": "Итоги 4 игры: Halloween Vibes 🎃",
+      "image_path": "assets/images/result-20261107-DfdGpDnHE5G-0.jpg"
+    },
+    "DfJynyRhJfl": {
+      "type": "ANNOUNCEMENT",
+      "date_utc": "2026-10-31T09:04:08",
+      "title": "Четвертая игра сезона S02 E04 Action!",
+      "image_path": "assets/images/poster-20261031-DfJynyRhJfl.jpg"
+    },
+    "DfdGPMHHEj2": {
+      "type": "RESULTS",
+      "date_utc": "2026-11-07T21:00:23",
+      "title": "Итоги: Вселенная Гарри Поттера ⚡",
+      "image_path": "assets/images/result-20261107-DfdGPMHHEj2-0.jpg"
+    },
+    "Dez_ErPEe_k": {
+      "type": "ANNOUNCEMENT",
+      "date_utc": "2026-10-22T21:48:56",
+      "title": "Вселенная Гарри Поттера",
+      "image_path": "assets/images/poster-20261022-Dez_ErPEe_k.jpg"
+    },
+    "DfQfH8GsT4x": {
+      "type": "STANDINGS",
+      "date_utc": "2026-11-02T23:27:52",
+      "teams_count": 9
+    },
+    "DfdDXvBHFcF": {
+      "type": "RESULTS",
+      "date_utc": "2026-11-07T20:35:21",
+      "title": "Итоги 3 игры: Сезон 02 Эпизод 03 🎬",
+      "image_path": "assets/images/result-20261107-DfdDXvBHFcF-0.jpg"
+    },
+    "DejZO3istlT": {
+      "type": "ANNOUNCEMENT",
+      "date_utc": "2026-10-16T11:10:33",
+      "title": "Третья игра сезона S02 E03 Action!",
+      "image_path": "assets/images/poster-20261016-DejZO3istlT.jpg"
+    },
+    "DfdDFIwHBVA": {
+      "type": "RESULTS",
+      "date_utc": "2026-11-07T20:32:48",
+      "title": "Итоги: Сага «Сумерки» 🐺",
+      "image_path": "assets/images/result-20261107-DfdDFIwHBVA-0.jpg"
+    },
+    "DeQWqHfHRBU": {
+      "type": "ANNOUNCEMENT",
+      "date_utc": "2026-10-09T01:42:21",
+      "title": "Сага «Сумерки»",
+      "image_path": "assets/images/poster-20261009-DeQWqHfHRBU.jpg"
+    },
+    "DfQeldksBgK": {
+      "type": "SCHEDULE_SUMMARY",
+      "date_utc": "2026-11-02T23:23:10"
+    }
+  }
+}
