@@ -6,7 +6,7 @@ downloads original high-resolution media, and updates index.html within delimite
 """
 
 import argparse
-import datetime
+from datetime import datetime, timezone, timedelta
 import json
 import logging
 import os
@@ -41,6 +41,34 @@ MONTHS_RU = {
 DAYS_RU = {
     0: "ПН", 1: "ВТ", 2: "СР", 3: "ЧТ", 4: "ПТ", 5: "СБ", 6: "ВС"
 }
+
+KRG_TZ = timezone(timedelta(hours=5))
+
+RU_MONTHS_MAP = {
+    "янв": 1, "фев": 2, "мар": 3, "апр": 4, "май": 5, "мая": 5,
+    "июн": 6, "июл": 7, "авг": 8, "сен": 9, "окт": 10, "ноя": 11, "дек": 12
+}
+
+
+def parse_game_cutoff_datetime(date_str: str, default_year: int = 2026) -> datetime:
+    """Parses date string (e.g. '17 ноября', '24.11') and returns a cutoff datetime when the game ends (22:00 KRG time)."""
+    text_lower = (date_str or "").lower()
+    day = 17
+    month = 11
+    m = re.search(r'(\d{1,2})\s*([а-яё]+)', text_lower)
+    if m:
+        day = int(m.group(1))
+        month_abbr = m.group(2)[:3]
+        month = RU_MONTHS_MAP.get(month_abbr, 11)
+    else:
+        m2 = re.search(r'(\d{1,2})[\./](\d{1,2})', text_lower)
+        if m2:
+            day = int(m2.group(1))
+            month = int(m2.group(2))
+    
+    # Quiz starts at 19:30 and concludes ~22:00; cutoff is 22:00 on the game day
+    return datetime(default_year, month, day, 22, 0, 0, tzinfo=KRG_TZ)
+
 
 
 def create_instaloader_context() -> instaloader.Instaloader:
@@ -353,6 +381,55 @@ def parse_announcement_post(post: instaloader.Post, site_dir: str) -> Dict[str, 
     }
 
 
+def generate_hero_poster_html(featured_game: Optional[Dict[str, Any]]) -> str:
+    """Generates the main Hero poster card HTML for the nearest active game."""
+    if not featured_game:
+        return """        <div class="poster">
+          <div class="poster-ribbon">СКОРО</div>
+          <div class="poster-head">
+            <span>Анонс игры</span>
+            <span>СКОРО В АФИШЕ</span>
+          </div>
+          <div class="poster-art">
+            <img src="assets/images/poster-marathon-art.jpg" alt="Киноквиз в Караганде" width="1328" height="906">
+            <div class="poster-overlay"></div>
+          </div>
+          <div class="poster-title">НОВЫЙ ЭПИЗОД:<br>СКОРО В ЭФИРЕ</div>
+          <div class="poster-footer">
+            <span>⌖ 19:30 · <a href="https://2gis.kz/karaganda/search/%D0%A2%D0%BE%20%D0%BC%D0%B5%D1%81%D1%82%D0%BE%20%D0%9D%D1%83%D1%80%D0%BA%D0%B5%D0%BD%D0%B0%20%D0%90%D0%B1%D0%B4%D0%B8%D1%80%D0%BE%D0%B2%D0%B0%2C%205" target="_blank" rel="noopener" style="color:var(--yellow);text-decoration:underline">Бар «То Место» (2GIS ↗)</a></span>
+            <b>3 000 ₸</b>
+          </div>
+          <button class="btn poster-btn" type="button" data-open>Предзапись на игру →</button>
+        </div>"""
+
+    title = featured_game.get("title", "Киномарафон: 100 вопросов")
+    title_display = title.replace(": ", ":<br>").upper()
+    img_src = featured_game.get("image_path", "assets/images/poster-marathon-art.jpg")
+    date_str = featured_game.get("date_str", "17 ноября").upper()
+    day_name = featured_game.get("day_name", "ВТ")
+    time_str = featured_game.get("time_str", "19:30")
+    data_game = featured_game.get("data_game", f"{title} ({date_str} в {time_str})")
+    ribbon = "S02 E05" if "100 вопросов" in title.lower() else "СПЕЦВЫПУСК"
+
+    return f"""        <div class="poster">
+          <div class="poster-ribbon">{ribbon}</div>
+          <div class="poster-head">
+            <span>Ближайшая игра</span>
+            <span>{day_name} · {date_str} 2026</span>
+          </div>
+          <div class="poster-art">
+            <img src="{img_src}" alt="Афиша {title}" width="1328" height="906">
+            <div class="poster-overlay"></div>
+          </div>
+          <div class="poster-title">{title_display}</div>
+          <div class="poster-footer">
+            <span>⌖ {time_str} · <a href="https://2gis.kz/karaganda/search/%D0%A2%D0%BE%20%D0%BC%D0%B5%D1%81%D1%82%D0%BE%20%D0%9D%D1%83%D1%80%D0%BA%D0%B5%D0%BD%D0%B0%20%D0%90%D0%B1%D0%B4%D0%B8%D1%80%D0%BE%D0%B2%D0%B0%2C%205" target="_blank" rel="noopener" style="color:var(--yellow);text-decoration:underline">Бар «То Место» (2GIS ↗)</a></span>
+            <b>3 000 ₸</b>
+          </div>
+          <button class="btn poster-btn" type="button" data-game="{data_game}">Забронировать стол →</button>
+        </div>"""
+
+
 def generate_games_html(announcements: List[Dict[str, Any]]) -> str:
     """Generates HTML cards for games in <div class="games" id="games">."""
     if not announcements:
@@ -586,8 +663,7 @@ def main():
     fetched_codes = {p["code"] for p in timeline_posts}
     unprocessed_codes = [c for c in fetched_codes if c not in processed_posts]
     if not unprocessed_codes and not args.force:
-        logger.info("All %d recent posts have already been processed. Nothing to do.", len(fetched_codes))
-        sys.exit(0)
+        logger.info("All %d recent posts have been examined. Checking for date-based game expiration...", len(fetched_codes))
 
     logger.info("Found %d new or re-processed posts to examine.", len(unprocessed_codes) if not args.force else len(fetched_codes))
 
@@ -638,31 +714,44 @@ def main():
                 "date_utc": post.date_utc.isoformat(),
             }
 
-    # Sort announcements and results by date_utc descending so latest post is first
+    # Sort announcements and results by date_utc descending
     announcements.sort(key=lambda x: x.get("date_utc", ""), reverse=True)
     results_list.sort(key=lambda x: x.get("date_utc", ""), reverse=True)
 
-    # Filter announcements to keep only the latest upcoming games
-    if announcements:
-        # Keep the latest announcement as featured game
-        announcements = [announcements[0]]
+    now_krg = datetime.now(KRG_TZ)
+    logger.info("Current Karaganda time: %s", now_krg.strftime("%Y-%m-%d %H:%M:%S"))
 
-    # Second announcement: Add upcoming Anime quiz if only one announcement is present
-    if len(announcements) == 1:
-        announcements.append({
-            "shortcode": "anime-quiz",
-            "date_utc": "2026-11-24T19:30:00Z",
-            "date_str": "24 ноября",
-            "time_str": "19:30",
-            "day_name": "ВТ",
-            "title": "Культовые Аниме",
-            "tag": "Тематический спецвыпуск",
-            "category": "anime",
-            "price": "3 000 ₸",
-            "desc": "Миядзаки, Наруто, Атака титанов, Клинок рассекающий демонов, Тетрадь смерти, Евангелион и шедевры мировой анимации.",
-            "image_path": "assets/images/poster-anime-naruto.jpg",
-            "data_game": "Культовые Аниме (24.11 в 19:30)",
-        })
+    # Add upcoming Anime quiz if it is still in the future
+    anime_cutoff = parse_game_cutoff_datetime("24 ноября")
+    if anime_cutoff >= now_krg:
+        has_anime = any("аниме" in a.get("title", "").lower() for a in announcements)
+        if not has_anime:
+            announcements.append({
+                "shortcode": "anime-quiz",
+                "date_utc": "2026-11-24T19:30:00Z",
+                "date_str": "24 ноября",
+                "time_str": "19:30",
+                "day_name": "ВТ",
+                "title": "Культовые Аниме",
+                "tag": "Тематический спецвыпуск",
+                "category": "anime",
+                "price": "3 000 ₸",
+                "desc": "Миядзаки, Наруто, Атака титанов, Клинок рассекающий демонов, Тетрадь смерти, Евангелион и шедевры мировой анимации.",
+                "image_path": "assets/images/poster-anime-naruto.jpg",
+                "data_game": "Культовые Аниме (24.11 в 19:30)",
+            })
+
+    # FILTER OUT PAST GAMES: Keep only games where cutoff datetime is in the future
+    active_announcements = []
+    for a in announcements:
+        cutoff = parse_game_cutoff_datetime(a.get("date_str", ""))
+        if cutoff >= now_krg:
+            active_announcements.append(a)
+        else:
+            logger.info("Game '%s' on %s has expired (cutoff %s < now %s). Automatically removed from schedule.",
+                        a.get("title"), a.get("date_str"), cutoff.strftime("%Y-%m-%d %H:%M"), now_krg.strftime("%Y-%m-%d %H:%M"))
+
+    announcements = active_announcements
 
     with open(index_html_path, "r", encoding="utf-8") as f:
         original_html = f.read()
@@ -671,8 +760,21 @@ def main():
 
     changed = False
 
+    # 0. Update Hero Poster Section
+    featured_game = announcements[0] if announcements else None
+    hero_poster_html = generate_hero_poster_html(featured_game)
+    html_content, c = update_delimited_block(
+        html_content,
+        "<!-- AUTOSYNC:HERO_POSTER_START -->",
+        "<!-- AUTOSYNC:HERO_POSTER_END -->",
+        hero_poster_html
+    )
+    if c:
+        changed = True
+        logger.info("Updated AUTOSYNC:HERO_POSTER section")
+
     # 1. Update Games Section
-    if announcements:
+    if True:
         games_html = generate_games_html(announcements)
         html_content, c = update_delimited_block(
             html_content,
@@ -732,7 +834,7 @@ def main():
     else:
         logger.info("index.html is already up-to-date with current Instagram content.")
 
-    state["last_sync_utc"] = datetime.datetime.now(datetime.timezone.utc).isoformat()
+    state["last_sync_utc"] = datetime.now(timezone.utc).isoformat()
     state["processed_posts"] = updated_posts
     save_state(state_file_path, state)
     logger.info("Synchronization completed successfully.")
