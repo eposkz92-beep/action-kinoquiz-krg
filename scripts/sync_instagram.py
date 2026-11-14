@@ -201,23 +201,13 @@ def parse_results_post(post: instaloader.Post, site_dir: str) -> Dict[str, Any]:
 
         if line.startswith("🥇") or "1 место" in line.lower():
             team = line.replace("🥇", "").replace("1 место", "").replace(":", "").strip()
-            label = f"🥇 1 место ({current_league}):" if current_league else "🥇 1 место:"
-            podium_entries.append({"label": label, "team": team})
+            podium_entries.append({"label": "🥇 1 место:", "team": team})
         elif line.startswith("🥈") or "2 место" in line.lower():
             team = line.replace("🥈", "").replace("2 место", "").replace(":", "").strip()
-            label = f"🥈 2 место ({current_league}):" if current_league else "🥈 2 место:"
-            podium_entries.append({"label": label, "team": team})
+            podium_entries.append({"label": "🥈 2 место:", "team": team})
         elif line.startswith("🥉") or "3 место" in line.lower():
             team = line.replace("🥉", "").replace("3 место", "").replace(":", "").strip()
-            label = f"🥉 3 место ({current_league}):" if current_league else "🥉 3 место:"
-            podium_entries.append({"label": label, "team": team})
-        elif line.startswith("👑"):
-            team = line.replace("👑", "").replace(":", "").strip()
-            podium_entries.append({"label": "👑 1 место (Падаваны):", "team": team})
-        elif line.startswith("🪄") or line.startswith("🍎"):
-            sym = line[0]
-            team = line[1:].replace(":", "").strip()
-            podium_entries.append({"label": f"{sym} Номинация:", "team": team})
+            podium_entries.append({"label": "🥉 3 место:", "team": team})
 
     # Download first image
     image_rel_path = f"assets/images/result-{post_date.strftime('%Y%m%d')}-{post.shortcode}-0.jpg"
@@ -480,7 +470,7 @@ def generate_results_html(results: List[Dict[str, Any]]) -> str:
         title = r.get("title", "")
         ig_url = r.get("ig_url", "https://www.instagram.com/action_kinoquiz_krg/")
         podium_lines = []
-        for p in r.get("podium", []):
+        for p in r.get("podium", [])[:3]:
             podium_lines.append(f'              <div><span>{p["label"]}</span> <b>{p["team"]}</b></div>')
         podium_html = "\n".join(podium_lines)
 
