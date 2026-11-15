@@ -27,6 +27,11 @@ import http from 'node:http';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { exec } from 'node:child_process';
+import { promisify } from 'node:util';
+import cron from 'node-cron';
+
+const execAsync = promisify(exec);
 
 import config from './config.js';
 import { initDatabase, normalizePhone } from './db/database.js';
@@ -441,6 +446,31 @@ function renderWebDashboard(qrDataUrl) {
       }
     }
 
+    async function syncGames() {
+      const btn = document.getElementById('sync-btn');
+      if (btn) {
+        btn.innerText = '⏳ Обновляем...';
+        btn.disabled = true;
+      }
+      try {
+        const res = await fetch('/api/sync-games', { method: 'POST' });
+        const data = await res.json();
+        if (data.ok) {
+          alert('✅ Расписание игр успешно синхронизировано с GitHub!\n\n' + (data.message || 'Все игры актуальны.'));
+          window.location.reload();
+        } else {
+          alert('⚠️ Ошибка обновления: ' + (data.error || 'Не удалось обновить'));
+        }
+      } catch (e) {
+        alert('⚠️ Ошибка соединения с сервером');
+      } finally {
+        if (btn) {
+          btn.innerText = '🔄 Обновить игры';
+          btn.disabled = false;
+        }
+      }
+    }
+
     function filterTable() {
       const val = document.getElementById('searchInput').value.toLowerCase().trim();
       const rows = document.querySelectorAll('#bookingsTable tbody tr');
@@ -534,6 +564,7 @@ function renderWebDashboard(qrDataUrl) {
     <div class="toolbar-card">
       <input type="text" id="searchInput" class="search-input" placeholder="🔍 Поиск по команде, капитану, телефону..." oninput="filterTable()">
       <div class="btn-group">
+        <button id="sync-btn" onclick="syncGames()" class="btn btn-csv" title="Синхронизировать игры с GitHub">🔄 Обновить игры</button>
         <a href="/api/export/excel" class="btn btn-excel" download target="_blank">📊 Скачать Excel (.xls)</a>
         <a href="/api/export/csv" class="btn btn-csv" download target="_blank">📄 Скачать CSV</a>
       </div>
@@ -696,12 +727,57 @@ const webServer = http.createServer(async (req, res) => {
     return;
   }
 
+  if (url.pathname === '/api/sync-games' && req.method === 'POST') {
+    logger.info('Manual games sync triggered via dashboard');
+    const syncRes = await syncRepositoryGames();
+    if (syncRes.ok) {
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, message: syncRes.output }));
+    } else {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, error: syncRes.error }));
+    }
+    return;
+  }
+
   res.writeHead(404, { 'Content-Type': 'text/plain' });
   res.end('Not Found');
 });
 
+/**
+ * Automatically pulls latest games and repository changes from GitHub.
+ */
+async function syncRepositoryGames() {
+  try {
+    const repoDir = path.resolve(botRootDir, '..');
+    const { stdout, stderr } = await execAsync('git pull --ff-only', { cwd: repoDir });
+    const output = (stdout || '').trim();
+    logger.info({ stdout: output, stderr: (stderr || '').trim() }, 'Repository auto-synced from GitHub');
+    return { ok: true, output: output || 'Уже обновлено (Already up to date).' };
+  } catch (err) {
+    logger.warn({ err: err.message }, 'Auto-sync git pull skipped or failed');
+    return { ok: false, error: err.message };
+  }
+}
+
 webServer.listen(config.qrPort, '0.0.0.0', () => {
   logger.info(`Web QR & Dashboard running at http://0.0.0.0:${config.qrPort}`);
+
+  // Schedule auto-sync: Nightly at 00:30 (after Instagram sync at 00:00) and every 4 hours
+  try {
+    cron.schedule('30 0 * * *', () => {
+      logger.info('Scheduled nightly git sync triggered...');
+      syncRepositoryGames();
+    }, { timezone: config.timezone });
+
+    cron.schedule('0 */4 * * *', () => {
+      logger.info('Scheduled 4-hour periodic git sync triggered...');
+      syncRepositoryGames();
+    }, { timezone: config.timezone });
+    logger.info('Automated game sync cron jobs initialized (nightly 00:30 + 4-hour interval)');
+  } catch (cronErr) {
+    logger.warn({ cronErr }, 'Failed to schedule automatic git sync cron');
+  }
 });
 
 // 4. Baileys WhatsApp Connection Manager
