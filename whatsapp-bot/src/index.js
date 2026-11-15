@@ -2251,35 +2251,8 @@ async function startBot() {
 
     if (qr) {
       currentQrCode = qr;
-      logger.info('New WhatsApp QR code received! Scan from terminal or web:');
+      logger.info('New WhatsApp QR code received! Scan from terminal or via Telegram /qr:');
       qrcodeTerminal.generate(qr, { small: true });
-      logger.info(`📱 Open in browser: http://localhost:${config.qrPort}`);
-
-      // Auto-send QR to Telegram admin group/chat if configured and not connected
-      if (config.telegram?.enabled && !isConnected) {
-        try {
-          QRCode.toBuffer(qr, { width: 600, margin: 2 }).then(buf => {
-            const formData = new FormData();
-            formData.append('chat_id', config.telegram.chatId);
-            formData.append('caption', [
-              '📱 <b>ТРЕБУЕТСЯ ПРИВЯЗКА WHATSAPP</b>',
-              '',
-              '1. Откройте <b>WhatsApp</b> на телефоне организатора',
-              '2. Перейдите в <b>«Связанные устройства»</b> → <b>«Привязка устройства»</b>',
-              '3. Отсканируйте этот QR-код'
-            ].join('\n'));
-            formData.append('parse_mode', 'HTML');
-            formData.append('photo', new Blob([buf], { type: 'image/png' }), 'whatsapp_qr.png');
-            formData.append('reply_markup', JSON.stringify({
-              inline_keyboard: [[{ text: '🔄 Обновить QR-код', callback_data: 'wa_qr' }]]
-            }));
-            fetch(`https://api.telegram.org/bot${config.telegram.botToken}/sendPhoto`, {
-              method: 'POST',
-              body: formData
-            }).catch(() => {});
-          }).catch(() => {});
-        } catch (e) {}
-      }
     }
 
     if (connection === 'close') {
