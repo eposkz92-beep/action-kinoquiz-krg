@@ -30,7 +30,7 @@ import { fileURLToPath } from 'node:url';
 
 import config from './config.js';
 import { initDatabase, normalizePhone } from './db/database.js';
-import { exportBookingsCsv, exportBookingsToCsv } from './db/exportCsv.js';
+import { exportBookingsCsv, exportBookingsToCsv, exportBookingsToExcelHtml, escapeHtml } from './db/exportCsv.js';
 import { exportBookingsToGoogleSheets } from './db/exportSheets.js';
 import { getActiveGames } from './games/gameLoader.js';
 import { handleIncomingMessage, FSM_STATES } from './dialog/fsm.js';
@@ -79,69 +79,116 @@ let scheduler = null;
  * @returns {string} HTML content
  */
 function renderWebDashboard(qrDataUrl) {
-  const bookingsCount = db.bookings.list({ limit: 1000 }).length;
+  const bookings = db.bookings.list({ limit: 1000 }) || [];
   const contactsCount = db.contacts.list({ limit: 1000 }).length;
+  const pricePerPlayer = Number(config.quiz?.pricePerPlayer) || 3000;
+  const totalPlayers = bookings.reduce((sum, b) => sum + (Number(b.players_count) || 0), 0);
+  const totalRevenue = totalPlayers * pricePerPlayer;
+
+  const tableRows = bookings.map((b, i) => {
+    const players = Number(b.players_count) || 0;
+    const sum = players * pricePerPlayer;
+    let rawPhone = b.captain_phone || '';
+    let digits = String(rawPhone).replace(/\D/g, '');
+    if (digits.startsWith('8') && digits.length === 11) digits = '7' + digits.slice(1);
+    const waUrl = digits ? `https://wa.me/${digits}` : '#';
+
+    const sourceBadge = b.source === 'web'
+      ? '<span class="badge badge-blue">Сайт</span>'
+      : '<span class="badge badge-green">WhatsApp</span>';
+
+    const statusBadge = b.status === 'cancelled'
+      ? '<span class="badge badge-red">Отменена</span>'
+      : '<span class="badge badge-emerald">Подтверждена</span>';
+
+    return `
+      <tr>
+        <td class="cell-center text-muted">${b.id || (i + 1)}</td>
+        <td class="cell-date">${escapeHtml(b.created_at || '')}</td>
+        <td class="cell-team"><strong>${escapeHtml(b.team_name)}</strong></td>
+        <td class="cell-center"><span class="players-pill">👥 ${players}</span></td>
+        <td>${escapeHtml(b.captain_name)}</td>
+        <td class="cell-phone">
+          <span>${escapeHtml(rawPhone)}</span>
+          ${digits ? `<a href="${waUrl}" target="_blank" class="wa-btn" title="Написать капитану в WhatsApp">💬</a>` : ''}
+        </td>
+        <td class="cell-game">${escapeHtml(b.game_title)}</td>
+        <td class="cell-date">${escapeHtml(b.game_date)}</td>
+        <td class="cell-sum">${sum.toLocaleString('ru-RU')} ₸</td>
+        <td class="cell-center">${sourceBadge}</td>
+        <td class="cell-center">${statusBadge}</td>
+      </tr>
+    `;
+  }).join('\n');
 
   return `<!DOCTYPE html>
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>ACTION Киноквиз — WhatsApp Бот</title>
+  <title>ACTION Киноквиз — Панель бронирований</title>
   <style>
     :root {
-      --bg: #0d0b18;
-      --card-bg: #171329;
+      --bg: #0b0914;
+      --card-bg: #151126;
+      --card-border: #2c244d;
       --accent: #f59e0b;
       --accent-hover: #d97706;
       --text: #f3f4f6;
       --muted: #9ca3af;
-      --border: #2e264f;
+      --border: #231c3d;
       --success: #10b981;
       --error: #ef4444;
+      --excel: #107c41;
+      --excel-hover: #0b5c30;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
     body {
       background-color: var(--bg);
       color: var(--text);
+      min-height: 100vh;
+      padding: 24px 16px;
       display: flex;
       flex-direction: column;
       align-items: center;
-      justify-content: center;
-      min-height: 100vh;
-      padding: 24px;
     }
-    .container {
-      max-width: 520px;
+    .wrapper {
+      max-width: 1200px;
       width: 100%;
-      background: var(--card-bg);
-      border: 1px solid var(--border);
-      border-radius: 16px;
-      padding: 32px;
-      box-shadow: 0 10px 30px rgba(0,0,0,0.5);
-      text-align: center;
+      display: flex;
+      flex-direction: column;
+      gap: 20px;
     }
-    .logo {
-      font-size: 26px;
+    .header-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 20px 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 16px;
+    }
+    .logo-title {
+      font-size: 24px;
       font-weight: 800;
       color: var(--accent);
-      margin-bottom: 8px;
       letter-spacing: 0.5px;
     }
-    .subtitle {
-      font-size: 14px;
+    .logo-sub {
+      font-size: 13px;
       color: var(--muted);
-      margin-bottom: 24px;
+      margin-top: 3px;
     }
     .status-badge {
       display: inline-flex;
       align-items: center;
       gap: 8px;
-      padding: 6px 14px;
+      padding: 8px 16px;
       border-radius: 9999px;
       font-size: 13px;
       font-weight: 600;
-      margin-bottom: 24px;
     }
     .status-connected {
       background: rgba(16, 185, 129, 0.15);
@@ -153,88 +200,208 @@ function renderWebDashboard(qrDataUrl) {
       color: var(--accent);
       border: 1px solid rgba(245, 158, 11, 0.3);
     }
-    .qr-box {
-      background: #ffffff;
-      padding: 16px;
-      border-radius: 12px;
-      display: inline-block;
-      margin-bottom: 20px;
-    }
-    .qr-box img {
-      display: block;
-      width: 250px;
-      height: 250px;
-    }
-    .instructions {
-      font-size: 13px;
-      line-height: 1.6;
-      color: var(--muted);
-      text-align: left;
-      background: rgba(255,255,255,0.03);
-      padding: 16px;
-      border-radius: 8px;
-      border: 1px solid var(--border);
-      margin-bottom: 24px;
-    }
-    .instructions ol {
-      margin-left: 20px;
-      margin-top: 6px;
-    }
-    .instructions li {
-      margin-bottom: 4px;
-    }
-    .stats-grid {
+    .metrics-grid {
       display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 12px;
-      margin-bottom: 24px;
+      grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+      gap: 16px;
     }
-    .stat-card {
-      background: rgba(255,255,255,0.02);
+    .metric-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 16px 20px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+    .metric-icon {
+      font-size: 30px;
+      background: rgba(255,255,255,0.03);
+      padding: 10px;
+      border-radius: 12px;
       border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 12px;
     }
-    .stat-val {
-      font-size: 20px;
-      font-weight: 700;
+    .metric-val {
+      font-size: 22px;
+      font-weight: 800;
       color: var(--text);
     }
-    .stat-lbl {
+    .metric-lbl {
       font-size: 12px;
       color: var(--muted);
       margin-top: 2px;
     }
-    .actions {
+    .qr-card {
+      background: var(--card-bg);
+      border: 1px solid var(--accent);
+      border-radius: 16px;
+      padding: 24px;
+      text-align: center;
+    }
+    .qr-box {
+      background: #ffffff;
+      padding: 12px;
+      border-radius: 12px;
+      display: inline-block;
+      margin: 16px 0;
+    }
+    .qr-box img {
+      display: block;
+      width: 220px;
+      height: 220px;
+    }
+    .instructions {
+      max-width: 600px;
+      margin: 0 auto;
+      font-size: 13px;
+      line-height: 1.6;
+      color: var(--muted);
+      text-align: left;
+      background: rgba(255,255,255,0.02);
+      padding: 16px;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+    }
+    .instructions ol { margin-left: 20px; margin-top: 6px; }
+    .toolbar-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 14px;
+      padding: 16px 20px;
       display: flex;
-      flex-direction: column;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 14px;
+    }
+    .search-input {
+      background: rgba(255,255,255,0.04);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px 16px;
+      color: var(--text);
+      font-size: 14px;
+      width: 320px;
+      max-width: 100%;
+      outline: none;
+      transition: border 0.2s;
+    }
+    .search-input:focus {
+      border-color: var(--accent);
+    }
+    .btn-group {
+      display: flex;
       gap: 10px;
+      flex-wrap: wrap;
     }
     .btn {
-      display: inline-block;
-      padding: 12px 20px;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 18px;
       border-radius: 8px;
       font-weight: 600;
-      font-size: 14px;
+      font-size: 13px;
       text-decoration: none;
       cursor: pointer;
       border: none;
-      transition: background 0.2s;
+      transition: all 0.2s;
     }
-    .btn-primary {
-      background: var(--accent);
-      color: #000;
+    .btn-excel {
+      background: var(--excel);
+      color: #fff;
     }
-    .btn-primary:hover {
-      background: var(--accent-hover);
+    .btn-excel:hover {
+      background: var(--excel-hover);
     }
-    .btn-outline {
-      background: transparent;
+    .btn-csv {
+      background: rgba(255,255,255,0.06);
       color: var(--text);
       border: 1px solid var(--border);
     }
-    .btn-outline:hover {
-      background: rgba(255,255,255,0.05);
+    .btn-csv:hover {
+      background: rgba(255,255,255,0.1);
+    }
+    .table-card {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      overflow: hidden;
+    }
+    .table-responsive {
+      overflow-x: auto;
+      width: 100%;
+    }
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      text-align: left;
+      font-size: 13.5px;
+    }
+    thead th {
+      background: rgba(255,255,255,0.03);
+      color: var(--muted);
+      font-weight: 600;
+      padding: 14px 16px;
+      border-bottom: 1px solid var(--border);
+      white-space: nowrap;
+    }
+    tbody td {
+      padding: 14px 16px;
+      border-bottom: 1px solid rgba(255,255,255,0.03);
+      vertical-align: middle;
+    }
+    tbody tr:hover {
+      background: rgba(255,255,255,0.02);
+    }
+    .cell-center { text-align: center; }
+    .text-muted { color: var(--muted); }
+    .cell-date { white-space: nowrap; color: var(--muted); font-size: 12.5px; }
+    .cell-team { color: var(--text); }
+    .cell-game { color: var(--accent); font-weight: 500; }
+    .cell-sum { font-weight: 700; color: var(--accent); white-space: nowrap; }
+    .players-pill {
+      background: rgba(245, 158, 11, 0.12);
+      color: var(--accent);
+      padding: 4px 10px;
+      border-radius: 12px;
+      font-weight: 700;
+      font-size: 12.5px;
+      display: inline-block;
+    }
+    .cell-phone {
+      white-space: nowrap;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .wa-btn {
+      background: #25d366;
+      color: #fff;
+      padding: 3px 8px;
+      border-radius: 6px;
+      text-decoration: none;
+      font-size: 12px;
+      font-weight: bold;
+    }
+    .wa-btn:hover { background: #1ebd5b; }
+    .badge {
+      display: inline-block;
+      padding: 4px 10px;
+      border-radius: 8px;
+      font-size: 11.5px;
+      font-weight: 600;
+      white-space: nowrap;
+    }
+    .badge-blue { background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); }
+    .badge-green { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
+    .badge-emerald { background: rgba(16, 185, 129, 0.2); color: #10b981; }
+    .badge-red { background: rgba(239, 68, 68, 0.15); color: #f87171; }
+    .empty-state {
+      padding: 40px 20px;
+      text-align: center;
+      color: var(--muted);
+      font-size: 14px;
     }
   </style>
   <script>
@@ -243,7 +410,10 @@ function renderWebDashboard(qrDataUrl) {
         const res = await fetch('/api/qr-data');
         const data = await res.json();
         if (data.status === 'connected') {
-          window.location.reload();
+          const badge = document.getElementById('status-badge');
+          if (badge && !badge.classList.contains('status-connected')) {
+            window.location.reload();
+          }
           return;
         }
         if (data.qrDataUrl) {
@@ -251,10 +421,8 @@ function renderWebDashboard(qrDataUrl) {
           if (img && img.src !== data.qrDataUrl) {
             img.src = data.qrDataUrl;
           }
-          const box = document.getElementById('qr-container');
+          const box = document.getElementById('qr-box-container');
           if (box) box.style.display = 'block';
-          const waitBox = document.getElementById('wait-container');
-          if (waitBox) waitBox.style.display = 'none';
         }
       } catch (e) {}
     }
@@ -273,71 +441,132 @@ function renderWebDashboard(qrDataUrl) {
       }
     }
 
+    function filterTable() {
+      const val = document.getElementById('searchInput').value.toLowerCase().trim();
+      const rows = document.querySelectorAll('#bookingsTable tbody tr');
+      rows.forEach(r => {
+        const text = r.innerText.toLowerCase();
+        r.style.display = text.includes(val) ? '' : 'none';
+      });
+    }
+
     setInterval(checkStatusAndQr, 4000);
   </script>
 </head>
 <body>
-  <div class="container">
-    <div class="logo">🎬 ACTION Киноквиз</div>
-    <div class="subtitle">Автономный WhatsApp Бот • Караганда</div>
-
-    <div class="stats-grid" style="margin-bottom: 20px;">
-      <div class="stat-card">
-        <div class="stat-val">${bookingsCount}</div>
-        <div class="stat-lbl">Всего броней в базе</div>
+  <div class="wrapper">
+    <!-- Header -->
+    <div class="header-card">
+      <div>
+        <div class="logo-title">🎬 ACTION Киноквиз</div>
+        <div class="logo-sub">Панель управления бронированиями и WhatsApp Бот • г. Караганда</div>
       </div>
-      <div class="stat-card">
-        <div class="stat-val">${contactsCount}</div>
-        <div class="stat-lbl">Капитанов в базе</div>
+      <div>
+        ${
+          isConnected
+            ? `<div id="status-badge" class="status-badge status-connected"><span>●</span> Бот подключен: +${botPhone || 'WhatsApp'}</div>`
+            : `<div id="status-badge" class="status-badge status-waiting"><span>●</span> Ожидание привязки WhatsApp</div>`
+        }
       </div>
     </div>
 
-    <div class="actions" style="margin-bottom: 25px;">
-      <a href="/api/export/csv" class="btn btn-primary" download="bookings.csv" target="_blank">📥 Скачать брони (Excel / CSV)</a>
-    </div>
-
+    <!-- QR block (if waiting) -->
     ${
-      isConnected
+      !isConnected
         ? `
-      <div class="status-badge status-connected">
-        <span>●</span> Бот успешно подключен: +${botPhone || 'WhatsApp'}
-      </div>
-      <div style="margin-top: 15px; color: var(--muted); font-size: 13px;">
-        Бот активен и автоматически принимает бронирования 24/7.
-      </div>
-      `
-        : `
-      <div class="status-badge status-waiting">
-        <span>●</span> Ожидание сканирования QR-кода
-      </div>
-
-      <div id="qr-container" style="${qrDataUrl ? 'display:block;' : 'display:none;'}">
-        <div class="qr-box">
-          <img id="qr-img" src="${qrDataUrl || ''}" alt="WhatsApp QR Code">
-        </div>
-        <div style="margin-bottom: 20px;">
-          <button id="refresh-btn" onclick="requestFreshQr()" class="btn btn-outline" style="font-size: 13px; padding: 8px 16px;">🔄 Получить новый QR-код</button>
-        </div>
-        <div class="instructions">
-          <strong>Инструкция для подключения:</strong>
-          <ol>
-            <li>Откройте <b>WhatsApp</b> на телефоне организатора.</li>
-            <li>Перейдите в <b>Настройки</b> ➔ <b>Связанные устройства</b>.</li>
-            <li>Нажмите <b>Привязка устройства</b> и наведите камеру на QR-код.</li>
-          </ol>
-          <div style="margin-top: 8px; font-size: 12px; color: var(--accent);">
-            ⚠️ <i>WhatsApp QR-код действует 20 секунд. Если телефон пишет «Не удалось привязать» — нажмите кнопку «Получить новый QR-код» выше.</i>
+      <div class="qr-card">
+        <h3 style="color: var(--accent); margin-bottom: 8px;">📲 Привязка номера WhatsApp</h3>
+        <p style="color: var(--muted); font-size: 13px;">Отсканируйте QR-код в приложении WhatsApp на телефоне организатора</p>
+        <div id="qr-box-container">
+          <div class="qr-box">
+            <img id="qr-img" src="${qrDataUrl || ''}" alt="WhatsApp QR">
           </div>
         </div>
-      </div>
-
-      <div id="wait-container" style="${qrDataUrl ? 'display:none;' : 'display:block;'} padding: 40px; color: var(--muted);">
-        Генерация свежего QR-кода соединения...<br>
-        Пожалуйста, подождите несколько секунд.<br><br>
-        <button onclick="requestFreshQr()" class="btn btn-outline" style="font-size: 13px; padding: 8px 16px;">🔄 Запустить генерацию</button>
+        <div style="margin-bottom: 16px;">
+          <button id="refresh-btn" onclick="requestFreshQr()" class="btn btn-csv" style="font-size: 12px; padding: 6px 14px;">🔄 Получить новый QR-код</button>
+        </div>
+        <div class="instructions">
+          <strong>Инструкция:</strong>
+          <ol>
+            <li>Откройте WhatsApp на телефоне.</li>
+            <li>Зайдите в <b>Настройки</b> ➔ <b>Связанные устройства</b>.</li>
+            <li>Нажмите <b>Привязка устройства</b> и наведите камеру на QR-код.</li>
+          </ol>
+        </div>
       </div>
       `
+        : ''
     }
+
+    <!-- Metrics -->
+    <div class="metrics-grid">
+      <div class="metric-card">
+        <div class="metric-icon">🎯</div>
+        <div>
+          <div class="metric-val">${bookings.length}</div>
+          <div class="metric-lbl">Команд зарегистрировано</div>
+        </div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-icon">👥</div>
+        <div>
+          <div class="metric-val">${totalPlayers}</div>
+          <div class="metric-lbl">Всего участников</div>
+        </div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-icon">💰</div>
+        <div>
+          <div class="metric-val">${totalRevenue.toLocaleString('ru-RU')} ₸</div>
+          <div class="metric-lbl">Сумма сборов (${pricePerPlayer.toLocaleString('ru-RU')} ₸/чел)</div>
+        </div>
+      </div>
+      <div class="metric-card">
+        <div class="metric-icon">📱</div>
+        <div>
+          <div class="metric-val">${contactsCount}</div>
+          <div class="metric-lbl">Капитанов в базе рассылки</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- Toolbar: Search & Export -->
+    <div class="toolbar-card">
+      <input type="text" id="searchInput" class="search-input" placeholder="🔍 Поиск по команде, капитану, телефону..." oninput="filterTable()">
+      <div class="btn-group">
+        <a href="/api/export/excel" class="btn btn-excel" download target="_blank">📊 Скачать Excel (.xls)</a>
+        <a href="/api/export/csv" class="btn btn-csv" download target="_blank">📄 Скачать CSV</a>
+      </div>
+    </div>
+
+    <!-- Bookings Table -->
+    <div class="table-card">
+      <div class="table-responsive">
+        <table id="bookingsTable">
+          <thead>
+            <tr>
+              <th class="cell-center" style="width: 45px;">№</th>
+              <th>Дата заявки</th>
+              <th>Команда</th>
+              <th class="cell-center">Игроков</th>
+              <th>Капитан</th>
+              <th>Телефон</th>
+              <th>Игра</th>
+              <th>Дата игры</th>
+              <th>К оплате</th>
+              <th class="cell-center">Источник</th>
+              <th class="cell-center">Статус</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${
+              tableRows ||
+              '<tr><td colspan="11" class="empty-state">Броней пока нет. Они появятся здесь сразу при регистрации с сайта или из WhatsApp!</td></tr>'
+            }
+          </tbody>
+        </table>
+      </div>
+    </div>
   </div>
 </body>
 </html>`;
@@ -438,6 +667,28 @@ const webServer = http.createServer(async (req, res) => {
         'Expires': '0'
       });
       res.end(csvBuffer);
+    } catch (err) {
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message }));
+    }
+    return;
+  }
+
+  if (url.pathname === '/api/export/excel' || url.pathname === '/api/export/xls') {
+    try {
+      const excelHtml = exportBookingsToExcelHtml(db, { pricePerPlayer: config.quiz?.pricePerPlayer || 3000 });
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      const filename = `kinoquiz_bookings_${timestamp}.xls`;
+      const excelBuffer = Buffer.from(excelHtml, 'utf8');
+      res.writeHead(200, {
+        'Content-Type': 'application/vnd.ms-excel; charset=utf-8',
+        'Content-Disposition': `attachment; filename="${filename}"`,
+        'Content-Length': excelBuffer.length,
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0'
+      });
+      res.end(excelBuffer);
     } catch (err) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: err.message }));
