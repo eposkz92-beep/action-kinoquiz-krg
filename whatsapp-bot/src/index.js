@@ -2168,9 +2168,9 @@ async function syncRepositoryGames() {
   }
 }
 
-const host = config.bindHost || '127.0.0.1';
+const host = config.bindHost || '0.0.0.0';
 webServer.listen(config.qrPort, host, () => {
-  logger.info(`Web QR & Dashboard running at http://${host}:${config.qrPort} (Stealth Mode: ${host === '127.0.0.1' ? 'ACTIVE' : 'OFF'})`);
+  logger.info(`Web QR & Dashboard running at http://${host}:${config.qrPort} (Password Auth: ACTIVE)`);
 
   // Schedule auto-sync: Nightly at 00:30 (after Instagram sync at 00:00) and every 4 hours
   try {

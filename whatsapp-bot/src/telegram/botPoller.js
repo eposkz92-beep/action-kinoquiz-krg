@@ -1190,9 +1190,12 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames, b
       try {
         const res = await syncRepositoryGames();
         await sendMessage(chatId, res.ok
-          ? `✅ <b>Расписание успешно обновлено!</b>\n<code>${escapeHtml(res.output)}</code>`
+          ? `✅ <b>Расписание успешно обновлено! Перезапускаю сервис...</b>\n<code>${escapeHtml(res.output)}</code>`
           : `⚠️ Ошибка синхронизации: ${escapeHtml(res.error)}`
         );
+        if (res.ok) {
+          setTimeout(() => process.exit(0), 1000);
+        }
       } catch (e) {
         await sendMessage(chatId, `❌ Ошибка: ${escapeHtml(e.message)}`);
       }
@@ -1291,6 +1294,9 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames, b
           await sendWhatsAppStatusOrQr(chatId);
         } else if (firstWord === '/sync' || firstWord === '/обновить') {
           await handleSync(chatId);
+        } else if (firstWord === '/restart' || firstWord === '/перезапуск') {
+          await sendMessage(chatId, '🔄 <b>Перезапуск сервиса...</b>\nБот перезагружается с актуальным кодом. Через 5-10 секунд он снова будет онлайн.');
+          setTimeout(() => process.exit(0), 500);
         }
       }
 
