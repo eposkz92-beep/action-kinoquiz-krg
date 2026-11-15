@@ -1,6 +1,7 @@
 import { exportBookingsToXlsxBuffer } from '../db/exportXlsx.js';
 import { escapeHtml } from '../db/exportCsv.js';
 import { getActiveGames } from '../games/gameLoader.js';
+import { getGamesArchive } from '../games/gamesArchive.js';
 
 /**
  * Builds an ASCII/Emoji progress bar
@@ -230,6 +231,65 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames })
     }
   }
 
+  async function sendGamesArchive(chatId) {
+    try {
+      const archive = getGamesArchive(db, config);
+      const lines = [
+        '📜 <b>АРХИВ И ИСТОРИЯ ИГР — ACTION КИНОКВИЗ</b>',
+        '',
+        '🏆 <b>СЕЗОН 02 (Осень 2026):</b>',
+        ''
+      ];
+
+      archive.pastGames.forEach((g, idx) => {
+        lines.push(`<b>${idx + 1}. ${escapeHtml(g.title)}</b>`);
+        lines.push(`   📅 <b>Дата:</b> ${g.dateLabel} • 📍 ${escapeHtml(g.venue)}`);
+        lines.push(`   👥 <b>Итог:</b> ${g.teamsCount} команд • <b>${g.playersCount} игроков</b> (${g.revenue.toLocaleString('ru-RU')} ₸)`);
+        if (g.winners) {
+          lines.push(`   🏆 🥇 <b>${escapeHtml(g.winners.first)}</b> | 🥈 ${escapeHtml(g.winners.second)} | 🥉 ${escapeHtml(g.winners.third)}`);
+        }
+        if (g.notes) {
+          lines.push(`   📝 <i>${escapeHtml(g.notes)}</i>`);
+        }
+        lines.push('');
+      });
+
+      if (archive.activeGames.length > 0) {
+        lines.push('⏳ <b>АКТУАЛЬНЫЕ ИГРЫ В ЗАПИСИ:</b>');
+        lines.push('');
+        archive.activeGames.forEach((g, idx) => {
+          lines.push(`<b>${idx + 1}. 🎬 ${escapeHtml(g.title)}</b> (${g.date})`);
+          lines.push(`   👥 Записано: <b>${g.teamsCount}</b> команд • <b>${g.playersCount}</b> игроков (${g.revenue.toLocaleString('ru-RU')} ₸)`);
+          lines.push(`   🟢 Статус: ${g.statusLabel}`);
+          lines.push('');
+        });
+      }
+
+      lines.push('─────────────');
+      lines.push('📊 <b>ИТОГИ ПО СЕЗОНУ:</b>');
+      lines.push(`• Игр проведено: <b>${archive.stats.completedGames}</b> (+ ${archive.stats.upcomingGames} в анонсе)`);
+      lines.push(`• Всего участников: <b>${archive.stats.totalPlayers} чел.</b> (~${archive.stats.avgPlayersPerGame} чел./игра)`);
+      lines.push(`• Общий сбор: <b>${archive.stats.totalRevenue.toLocaleString('ru-RU')} ₸</b> (~${archive.stats.avgRevenuePerGame.toLocaleString('ru-RU')} ₸/игра)`);
+
+      const replyMarkup = {
+        inline_keyboard: [
+          [
+            { text: '📊 Текущая посадка', callback_data: 'stats' },
+            { text: '📋 Список броней', callback_data: 'bookings' }
+          ],
+          [
+            { text: '📥 Скачать Excel (.xlsx)', callback_data: 'excel' }
+          ]
+        ]
+      };
+
+      await sendMessage(chatId, lines.join('\n'), { reply_markup: replyMarkup });
+    } catch (err) {
+      logger.error({ err: err.message }, 'Failed to send games archive');
+      await sendMessage(chatId, '❌ Ошибка при формировании архива игр.');
+    }
+  }
+
   async function sendMainMenu(chatId) {
     const text = [
       '🎬 <b>ACTION Киноквиз Караганда — Панель управления</b>',
@@ -241,17 +301,18 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames })
       inline_keyboard: [
         [
           { text: '📊 Статистика и посадка', callback_data: 'stats' },
-          { text: '📋 Список броней', callback_data: 'bookings' }
+          { text: '📜 Архив всех игр', callback_data: 'archive' }
+        ],
+        [
+          { text: '📋 Список броней', callback_data: 'bookings' },
+          { text: '📥 Скачать Excel (.xlsx)', callback_data: 'excel' }
         ],
         [
           { text: '🎬 Киномарафон (17.11)', callback_data: 'filter_game_1' },
           { text: '🎌 Аниме (24.11)', callback_data: 'filter_game_2' }
         ],
         [
-          { text: '📥 Скачать Excel (.xlsx)', callback_data: 'excel' },
-          { text: '➕ Быстрая бронь', callback_data: 'help_add' }
-        ],
-        [
+          { text: '➕ Быстрая бронь', callback_data: 'help_add' },
           { text: '🔄 Обновить игры с GitHub', callback_data: 'sync' }
         ]
       ]
@@ -381,6 +442,8 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames })
           await sendBookingsList(chatId);
         } else if (firstWord === '/stats' || firstWord === '/статистика') {
           await sendStats(chatId);
+        } else if (firstWord === '/archive' || firstWord === '/архив' || firstWord === '/игры' || firstWord === '/история') {
+          await sendGamesArchive(chatId);
         } else if (firstWord === '/add' || firstWord === '/добавить') {
           await handleAddCommand(chatId, args);
         } else if (firstWord === '/sync' || firstWord === '/обновить') {
@@ -398,6 +461,8 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames })
 
         if (data === 'stats') {
           await sendStats(chatId);
+        } else if (data === 'archive') {
+          await sendGamesArchive(chatId);
         } else if (data === 'bookings') {
           await sendBookingsList(chatId);
         } else if (data === 'filter_game_1') {
@@ -429,9 +494,10 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames })
         body: JSON.stringify({
           commands: [
             { command: 'menu', description: 'Панель управления ACTION Киноквиз' },
-            { command: 'excel', description: '📥 Скачать выгрузку в Excel (.xlsx)' },
-            { command: 'bookings', description: '📋 Список зарегистрированных команд' },
+            { command: 'archive', description: '📜 Архив и история всех игр' },
             { command: 'stats', description: '📊 Статистика и посадка зала' },
+            { command: 'bookings', description: '📋 Список зарегистрированных команд' },
+            { command: 'excel', description: '📥 Скачать выгрузку в Excel (.xlsx)' },
             { command: 'add', description: '➕ Быстро добавить бронь вручную' },
             { command: 'sync', description: '🔄 Обновить игры с GitHub' }
           ]

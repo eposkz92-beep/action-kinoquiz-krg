@@ -39,6 +39,7 @@ import { exportBookingsCsv, exportBookingsToCsv, exportBookingsToExcelHtml, esca
 import { exportBookingsToXlsxBuffer } from './db/exportXlsx.js';
 import { exportBookingsToGoogleSheets } from './db/exportSheets.js';
 import { getActiveGames } from './games/gameLoader.js';
+import { getGamesArchive } from './games/gamesArchive.js';
 import { handleIncomingMessage, FSM_STATES } from './dialog/fsm.js';
 import { sendBookingAlert } from './telegram/notifier.js';
 import { startTelegramPoller } from './telegram/botPoller.js';
@@ -93,6 +94,35 @@ function renderWebDashboard(qrDataUrl) {
   const totalRevenue = totalPlayers * pricePerPlayer;
   const venueCapacity = Number(config.quiz?.venueCapacity) || 60;
   const activeGames = getActiveGames();
+
+  // 0. Historical Games Archive
+  const archiveData = getGamesArchive(db, config);
+  const archiveRowsHtml = archiveData.games.map((g, idx) => {
+    const isCompleted = g.status === 'completed';
+    const statusPill = isCompleted
+      ? '<span class="badge badge-emerald">Завершена</span>'
+      : '<span class="badge badge-blue">Идет запись</span>';
+
+    const winnersHtml = g.winners
+      ? `🥇 <b>${escapeHtml(g.winners.first)}</b><br><span style="font-size:11.5px;color:var(--muted)">🥈 ${escapeHtml(g.winners.second)} • 🥉 ${escapeHtml(g.winners.third)}</span>`
+      : `<span class="text-muted">${escapeHtml(g.notes || '—')}</span>`;
+
+    return `
+      <tr>
+        <td class="cell-center text-muted"><b>${idx + 1}</b></td>
+        <td class="cell-date"><b>${escapeHtml(g.date)}</b></td>
+        <td>
+          <div style="font-weight:700;color:var(--text);font-size:14px">${escapeHtml(g.title)}</div>
+          <div style="font-size:12px;color:var(--muted);margin-top:2px">${escapeHtml(g.theme)} • ${escapeHtml(g.venue)}</div>
+        </td>
+        <td class="cell-center">${statusPill}</td>
+        <td class="cell-center"><span class="players-pill">👥 ${g.teamsCount} ком.</span></td>
+        <td class="cell-center" style="font-size:13.5px;font-weight:700"><b>${g.playersCount} чел.</b></td>
+        <td class="cell-sum">${g.revenue.toLocaleString('ru-RU')} ₸</td>
+        <td style="font-size:13px;line-height:1.4">${winnersHtml}</td>
+      </tr>
+    `;
+  }).join('\n');
 
   // 1. Capacity progress cards for active games
   const capacityCardsHtml = activeGames.map((game, idx) => {
@@ -334,6 +364,15 @@ function renderWebDashboard(qrDataUrl) {
     .qr-info ol { margin-left: 20px; margin-top: 6px; }
 
     /* Capacity Progress Section */
+    .archive-section {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 20px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
     .capacity-section {
       background: var(--card-bg);
       border: 1px solid var(--card-border);
@@ -1238,6 +1277,64 @@ function renderWebDashboard(qrDataUrl) {
         </table>
       </div>
     </div>
+
+    <!-- Games Archive & History Section -->
+    <div class="archive-section" id="archiveSection" style="margin-top: 10px;">
+      <div class="section-title">📜 Архив и история всех игр (Сезон 02)</div>
+
+      <div class="metrics-grid" style="margin-top: 4px; margin-bottom: 6px;">
+        <div class="metric-card">
+          <div class="metric-icon">🏆</div>
+          <div>
+            <div class="metric-val">${archiveData.stats.completedGames} игр</div>
+            <div class="metric-lbl">Проведено в Сезоне 02 (+${archiveData.stats.upcomingGames} в анонсе)</div>
+          </div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-icon">👥</div>
+          <div>
+            <div class="metric-val">${archiveData.stats.totalPlayers} чел.</div>
+            <div class="metric-lbl">Всего участников (в ср. ${archiveData.stats.avgPlayersPerGame} чел./игра)</div>
+          </div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-icon">💰</div>
+          <div>
+            <div class="metric-val">${archiveData.stats.totalRevenue.toLocaleString('ru-RU')} ₸</div>
+            <div class="metric-lbl">Общий сбор (в ср. ${archiveData.stats.avgRevenuePerGame.toLocaleString('ru-RU')} ₸/игра)</div>
+          </div>
+        </div>
+        <div class="metric-card">
+          <div class="metric-icon">📍</div>
+          <div>
+            <div class="metric-val">«То Место»</div>
+            <div class="metric-lbl">Основная площадка проведения</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="table-card">
+        <div class="table-responsive">
+          <table>
+            <thead>
+              <tr>
+                <th class="cell-center" style="width: 40px;">№</th>
+                <th>Дата</th>
+                <th>Игра / Тема</th>
+                <th class="cell-center">Статус</th>
+                <th class="cell-center">Команд</th>
+                <th class="cell-center">Игроков</th>
+                <th>Касса / Сбор</th>
+                <th>Призёры / Победители</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${archiveRowsHtml}
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- Modal for Fast Manual Booking -->
@@ -1408,6 +1505,13 @@ const webServer = http.createServer(async (req, res) => {
     };
     res.writeHead(200, { 'Content-Type': 'application/manifest+json; charset=utf-8' });
     res.end(JSON.stringify(manifest, null, 2));
+    return;
+  }
+
+  if (url.pathname === '/api/games/archive') {
+    const archive = getGamesArchive(db, config);
+    res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+    res.end(JSON.stringify(archive, null, 2));
     return;
   }
 
