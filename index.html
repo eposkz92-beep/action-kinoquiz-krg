@@ -1007,9 +1007,9 @@ document.getElementById('regForm').addEventListener('submit', async e => {
     closeModal();
   }
 
-  // Determine API base URL
-  const isDirectHost = window.location.hostname === '136.71.1.182' || window.location.hostname === 'localhost';
-  const apiBase = isDirectHost ? '' : (window.KINOQUIZ_API_URL || 'http://136.71.1.182:3000');
+  // Determine API base URL: prefer HTTPS SSL domain
+  const isDirectHost = window.location.hostname === '136.71.1.182' || window.location.hostname === 'localhost' || window.location.hostname.includes('sslip.io');
+  const apiBase = isDirectHost ? '' : (window.KINOQUIZ_API_URL || 'https://136-71-1-182.sslip.io');
   const apiUrl = `${apiBase}/api/public/book`;
 
   let apiSuccess = false;
