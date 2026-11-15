@@ -2110,6 +2110,16 @@ async function handleWebRequest(req, res) {
       acmeAvailable = true;
     } catch (e) {}
 
+    let hasSudo = false;
+    let iptablesRules = '';
+    try {
+      const { stdout } = await execAsync('sudo -n iptables -t nat -L PREROUTING -n -v');
+      hasSudo = true;
+      iptablesRules = stdout;
+    } catch (e) {
+      iptablesRules = e.message;
+    }
+
     const sslDir = path.resolve(path.dirname(config.dbPath), 'ssl');
     const certPath = path.join(sslDir, 'cert.pem');
     const keyPath = path.join(sslDir, 'key.pem');
@@ -2121,6 +2131,8 @@ async function handleWebRequest(req, res) {
       ok: true,
       uptime: process.uptime(),
       nodeVersion: process.version,
+      hasSudo,
+      iptablesRules,
       acmeAvailable,
       certExists,
       keyExists,
