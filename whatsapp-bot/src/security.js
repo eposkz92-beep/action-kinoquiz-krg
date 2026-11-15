@@ -87,7 +87,8 @@ export function createSecurityManager({
       pathname === '/avatar.png' ||
       pathname === '/logo.png' ||
       pathname === '/manifest.json' ||
-      pathname === '/api/health'
+      pathname === '/api/health' ||
+      pathname === '/api/public/book'
     ) {
       return true;
     }

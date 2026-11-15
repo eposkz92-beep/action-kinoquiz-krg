@@ -21,6 +21,7 @@ test('Security & Authentication Module Test Suite', async (t) => {
     assert.equal(security.isPublicPath('/logo.png'), true);
     assert.equal(security.isPublicPath('/manifest.json'), true);
     assert.equal(security.isPublicPath('/api/health'), true);
+    assert.equal(security.isPublicPath('/api/public/book'), true);
 
     // Protected paths
     assert.equal(security.isPublicPath('/'), false);

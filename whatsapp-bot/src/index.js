@@ -1809,6 +1809,19 @@ const webServer = http.createServer(async (req, res) => {
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
   const clientIp = getClientIp(req);
 
+  // Handle CORS for public endpoints
+  if (url.pathname === '/api/public/book' || url.pathname === '/api/health') {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Accept');
+
+    if (req.method === 'OPTIONS') {
+      res.writeHead(204);
+      res.end();
+      return;
+    }
+  }
+
   // Public health-check endpoint
   if (url.pathname === '/api/health') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
@@ -2057,6 +2070,134 @@ const webServer = http.createServer(async (req, res) => {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ ok: true, message: 'Server restarting...' }));
     setTimeout(() => process.exit(0), 500);
+    return;
+  }
+
+  // Public website booking endpoint: saves booking, updates contacts, and auto-sends WhatsApp confirmation to captain
+  if (url.pathname === '/api/public/book' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', async () => {
+      try {
+        const payload = JSON.parse(body || '{}');
+        const teamName = (payload.teamName || payload.team_name || payload.team || '').trim();
+        const captainName = (payload.captainName || payload.captain_name || payload.captain || '').trim();
+        const rawPhone = (payload.captainPhone || payload.captain_phone || payload.phone || '').trim();
+        let rawPlayers = payload.playersCount || payload.players_count || payload.players || 6;
+        if (typeof rawPlayers === 'string') {
+          const matchNum = rawPlayers.match(/\d+/);
+          rawPlayers = matchNum ? parseInt(matchNum[0], 10) : 6;
+        }
+        const playersCount = isNaN(rawPlayers) || rawPlayers <= 0 ? 6 : rawPlayers;
+        const gameTitle = (payload.gameTitle || payload.game_title || payload.game || '').trim();
+        const gameDate = (payload.gameDate || payload.game_date || payload.date || '').trim();
+        const notes = (payload.notes || payload.comment || payload.league || '').trim();
+
+        if (!teamName) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: 'Пожалуйста, укажите название команды' }));
+          return;
+        }
+
+        if (!rawPhone) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: 'Пожалуйста, укажите номер телефона капитана' }));
+          return;
+        }
+
+        const digits = String(rawPhone).replace(/\D/g, '');
+        if (digits.length < 10) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ ok: false, error: 'Некорректный номер телефона. Укажите минимум 10 цифр номера' }));
+          return;
+        }
+
+        const normPhone = normalizePhone(rawPhone);
+
+        // 1. Create booking in DB
+        const booking = db.bookings.create({
+          teamName,
+          captainName: captainName || teamName,
+          captainPhone: normPhone,
+          playersCount,
+          gameTitle: gameTitle || 'ACTION Киноквиз',
+          gameDate: gameDate || '',
+          source: 'website',
+          status: 'confirmed',
+          notes
+        });
+
+        // 2. Upsert captain to contacts for broadcast database
+        if (db.contacts) {
+          try {
+            db.contacts.upsert({
+              phone: normPhone,
+              name: captainName || teamName,
+              teamName: teamName,
+              role: 'captain'
+            });
+          } catch (cErr) {
+            logger.warn({ cErr: cErr.message }, 'Failed to upsert contact from website booking');
+          }
+        }
+
+        // 3. Send WhatsApp confirmation message directly to captain
+        let waSent = false;
+        if (sock && isConnected) {
+          try {
+            const captainJid = phoneToJid(normPhone);
+            if (captainJid) {
+              const greetingName = captainName ? `, ${captainName}` : '';
+              const datePart = booking.game_date ? ` (${booking.game_date})` : '';
+              const confirmationText = [
+                `🎉 *Здравствуйте${greetingName}!*`,
+                '',
+                `Ваша бронь стола на *ACTION Киноквиз* успешно принята! 🎬🍿`,
+                '',
+                `👥 *Команда:* «${teamName}»`,
+                `♟️ *Количество игроков:* ${booking.players_count} чел.`,
+                `📅 *Игра:* ${booking.game_title}${datePart}`,
+                `📍 *Место:* ${config.quiz?.location || 'Караоке-бар «То Место» (пр. Нуркена Абдирова, 5)'}`,
+                `💰 *Взнос:* 3 000 ₸ с игрока`,
+                '',
+                `Стол закреплён за вашей командой! Ждём вас к 19:30! ✨`,
+                '',
+                `_Если изменятся планы или состав команды — просто напишите нам в ответ на это сообщение._`
+              ].join('\n');
+
+              await sock.sendMessage(captainJid, { text: confirmationText });
+              waSent = true;
+              logger.info({ captainPhone: normPhone, captainJid, bookingId: booking.id }, 'WhatsApp confirmation sent to captain');
+            }
+          } catch (waErr) {
+            logger.warn({ waErr: waErr.message, normPhone }, 'Failed to deliver WhatsApp confirmation to captain');
+          }
+        } else {
+          logger.info({ normPhone, isConnected }, 'WhatsApp not connected, skipped direct message');
+        }
+
+        // 4. Send Telegram alert to organizers
+        let telegramResult = null;
+        try {
+          telegramResult = await sendBookingAlert(booking, { isWebBooking: true });
+        } catch (tgErr) {
+          logger.warn({ tgErr: tgErr.message }, 'Telegram alert failed in /api/public/book');
+        }
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          ok: true,
+          message: 'Бронь успешно создана и сохранена в базу!',
+          booking,
+          waSent,
+          telegramSent: Boolean(telegramResult)
+        }));
+      } catch (err) {
+        logger.error({ err: err.message }, 'Error handling /api/public/book');
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: err.message }));
+      }
+    });
     return;
   }
 

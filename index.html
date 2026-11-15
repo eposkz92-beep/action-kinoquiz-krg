@@ -819,63 +819,82 @@ footer{padding:50px 0 25px;background:#09060f;border-top:1px solid var(--line)}
 <div class="modal" id="regModal" role="dialog" aria-modal="true" aria-labelledby="modalTitle">
   <div class="modal-box">
     <button class="close-btn" id="closeModal" type="button" aria-label="Закрыть">×</button>
-    <div class="kicker">Бронь стола</div>
-    <h2 id="modalTitle">Записать команду</h2>
-    <p>Заполните форму — заявка откроется готовым сообщением в WhatsApp для мгновенного подтверждения организатором.</p>
 
-    <form id="regForm">
-      <div class="field">
-        <label for="team">Название команды (или ваше имя)</label>
-        <input id="team" name="team" placeholder="Например: ДНК, Ошибка 606 или Артём" required>
-      </div>
+    <!-- Step 1: Booking Form -->
+    <div id="regFormContainer">
+      <div class="kicker">Бронь стола</div>
+      <h2 id="modalTitle">Записать команду</h2>
+      <p id="modalDesc">Заполните форму — заявка мгновенно поступит организаторам, а бот пришлёт подтверждение в WhatsApp.</p>
 
-      <div class="field">
-        <label for="players">Количество игроков</label>
-        <select id="players" name="players" required>
-          <option value="">Выберите количество</option>
-          <option value="1 (ищу команду)">1 (ищу команду — подберите мне состав!)</option>
-          <option value="2">2 игрока</option>
-          <option value="3">3 игрока</option>
-          <option value="4">4 игрока</option>
-          <option value="5">5 игроков</option>
-          <option value="6">6 игроков</option>
-          <option value="7">7 игроков</option>
-          <option value="8">8 игроков</option>
-          <option value="9">9 игроков</option>
-          <option value="10">10 игроков</option>
-          <option value="Больше 10">Больше 10 (разделимся на 2 стола)</option>
-        </select>
-      </div>
+      <form id="regForm">
+        <div class="field">
+          <label for="team">Название команды (или ваше имя)</label>
+          <input id="team" name="team" placeholder="Например: ДНК, Ошибка 606 или Артём" required>
+        </div>
 
-      <div class="field">
-        <label for="phone">Номер WhatsApp</label>
-        <input id="phone" name="phone" type="tel" placeholder="+7 7__ ___ __ __" required>
-      </div>
+        <div class="field">
+          <label for="players">Количество игроков</label>
+          <select id="players" name="players" required>
+            <option value="">Выберите количество</option>
+            <option value="1 (ищу команду)">1 (ищу команду — подберите мне состав!)</option>
+            <option value="2">2 игрока</option>
+            <option value="3">3 игрока</option>
+            <option value="4">4 игрока</option>
+            <option value="5">5 игроков</option>
+            <option value="6">6 игроков</option>
+            <option value="7">7 игроков</option>
+            <option value="8">8 игроков</option>
+            <option value="9">9 игроков</option>
+            <option value="10">10 игроков</option>
+            <option value="Больше 10">Больше 10 (разделимся на 2 стола)</option>
+          </select>
+        </div>
 
-      <div class="field">
-        <label for="game">Выберите игру</label>
-        <select id="game" name="game" required>
-          <!-- AUTOSYNC:SELECT_GAMES_START -->
-          <option value="Киномарафон: 100 вопросов (17.11 в 19:30)">Киномарафон: 100 вопросов (ВТ, 17 ноября в 19:30) — Ближайшая игра</option>
-          <option value="Культовые Аниме (24.11 в 19:30)">Культовые Аниме (ВТ, 24 ноября в 19:30) — Открыта запись</option>
-        <!-- AUTOSYNC:SELECT_GAMES_END -->
-        </select>
-      </div>
+        <div class="field">
+          <label for="phone">Номер WhatsApp</label>
+          <input id="phone" name="phone" type="tel" placeholder="+7 7__ ___ __ __" required>
+        </div>
 
-      <div class="field">
-        <label for="league">Лига (опыт команды)</label>
-        <select id="league" name="league">
-          <option value="Падаваны (новички)">💜 Лига «Падаваны» (мы новички / играем для отдыха)</option>
-          <option value="Джедаи (опытные)">💚 Лига «Джедаи» (опытные знатоки кино)</option>
-        </select>
-      </div>
+        <div class="field">
+          <label for="game">Выберите игру</label>
+          <select id="game" name="game" required>
+            <!-- AUTOSYNC:SELECT_GAMES_START -->
+            <option value="Киномарафон: 100 вопросов (17.11 в 19:30)">Киномарафон: 100 вопросов (ВТ, 17 ноября в 19:30) — Ближайшая игра</option>
+            <option value="Культовые Аниме (24.11 в 19:30)">Культовые Аниме (ВТ, 24 ноября в 19:30) — Открыта запись</option>
+          <!-- AUTOSYNC:SELECT_GAMES_END -->
+          </select>
+        </div>
 
-      <p class="form-tip">
-        Нажимая кнопку, вы перейдёте в WhatsApp с заполненной заявкой. Организатор подтвердит бронь стола.
+        <div class="field">
+          <label for="league">Лига (опыт команды)</label>
+          <select id="league" name="league">
+            <option value="Падаваны (новички)">💜 Лига «Падаваны» (мы новички / играем для отдыха)</option>
+            <option value="Джедаи (опытные)">💚 Лига «Джедаи» (опытные знатоки кино)</option>
+          </select>
+        </div>
+
+        <p class="form-tip" id="formTip">
+          После отправки стол бронируется за вами, а бот пришлёт подтверждение в ваш WhatsApp.
+        </p>
+
+        <button class="btn" id="regSubmitBtn" type="submit" style="width:100%">Забронировать стол ✨</button>
+      </form>
+    </div>
+
+    <!-- Step 2: Instant Success Confirmation -->
+    <div id="regSuccessContainer" style="display:none;text-align:center;padding:12px 0">
+      <div style="font-size:52px;margin-bottom:12px;line-height:1">🎉</div>
+      <h2 style="font-family:'Oswald',sans-serif;font-size:30px;color:#facc15;margin:0 0 10px;text-transform:uppercase">Стол забронирован!</h2>
+      <p style="color:#f3f4f6;font-size:15px;line-height:1.6;margin:0 0 16px" id="successDesc">
+        Команда успешно записана! Подтверждение отправлено вам в WhatsApp.
       </p>
-
-      <button class="btn" type="submit" style="width:100%">Отправить заявку в WhatsApp →</button>
-    </form>
+      <div style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);border-radius:14px;padding:16px;margin:0 0 24px;text-align:left;font-size:13.5px;color:#cbd5e1;line-height:1.6" id="successDetails">
+        📍 <b>Место:</b> Караоке-бар «То Место» (пр. Нуркена Абдирова, 5)<br>
+        💰 <b>Взнос:</b> 3 000 ₸ с игрока<br>
+        ⏰ <b>Сбор команд:</b> в 19:30
+      </div>
+      <button class="btn" type="button" onclick="closeModal()" style="width:100%">Отлично, ждём игру! 🎬</button>
+    </div>
   </div>
 </div>
 
@@ -885,11 +904,32 @@ const gameSelect = document.getElementById('game');
 const navLinks = document.getElementById('navLinks');
 const menuBtn = document.getElementById('menuBtn');
 
+function escapeHtml(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;');
+}
+
 function openModal(game = '') {
   modal.classList.add('show');
   document.body.style.overflow = 'hidden';
   navLinks.classList.remove('open');
   menuBtn.setAttribute('aria-expanded', 'false');
+
+  const formBox = document.getElementById('regFormContainer');
+  const successBox = document.getElementById('regSuccessContainer');
+  if (formBox) formBox.style.display = 'block';
+  if (successBox) successBox.style.display = 'none';
+
+  const submitBtn = document.getElementById('regSubmitBtn');
+  if (submitBtn) {
+    submitBtn.disabled = false;
+    submitBtn.textContent = 'Забронировать стол ✨';
+  }
+
   if (game) {
     const match = Array.from(gameSelect.options).find(opt => opt.value.toLowerCase().includes(game.toLowerCase()));
     if (match) gameSelect.value = match.value;
@@ -907,12 +947,24 @@ document.getElementById('closeModal').addEventListener('click', closeModal);
 modal.addEventListener('click', e => { if (e.target === modal) closeModal(); });
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal(); });
 
-// Form Submit -> WhatsApp с тематическими эмодзи
-document.getElementById('regForm').addEventListener('submit', e => {
+// Form Submit -> Direct Server API with auto WhatsApp confirmation & graceful fallback
+document.getElementById('regForm').addEventListener('submit', async e => {
   e.preventDefault();
   const d = new FormData(e.currentTarget);
-  const g = (d.get('game') || '').toLowerCase();
-  
+  const team = String(d.get('team') || '').trim();
+  const players = String(d.get('players') || '').trim();
+  const phone = String(d.get('phone') || '').trim();
+  const game = String(d.get('game') || '').trim();
+  const league = String(d.get('league') || '').trim();
+
+  const submitBtn = document.getElementById('regSubmitBtn');
+  if (submitBtn) {
+    submitBtn.disabled = true;
+    submitBtn.textContent = '⏳ Бронируем стол...';
+  }
+
+  // Pre-formatted WhatsApp fallback text with themed emojis
+  const g = game.toLowerCase();
   let headerEmoji = '🎬🍿';
   let themeEmoji = '🎯';
   let punchline = 'Готовы к кинобаттлу!';
@@ -935,23 +987,70 @@ document.getElementById('regForm').addEventListener('submit', e => {
     punchline = 'Эдвард vs Джейкоб — наш выбор сделан, едем в Форкс!';
   }
 
-  const text = [
+  const waFallbackText = [
     `${headerEmoji} *Здравствуйте! Хотим забронировать стол на ACTION Киноквиз в Караганде!*`,
     '',
-    `📅 *Выбранная игра:* ${d.get('game')} ${themeEmoji}`,
+    `📅 *Выбранная игра:* ${game} ${themeEmoji}`,
     `💬 *Настрой команды:* ${punchline}`,
-    `👥 *Команда:* «${d.get('team')}»`,
-    `♟️ *Количество игроков:* ${d.get('players')} чел.`,
-    `🏆 *Лига:* ${d.get('league')}`,
-    `📱 *Телефон капитана:* ${d.get('phone')}`,
+    `👥 *Команда:* «${team}»`,
+    `♟️ *Количество игроков:* ${players} чел.`,
+    `🏆 *Лига:* ${league}`,
+    `📱 *Телефон капитана:* ${phone}`,
     '',
     '📍 *Место:* Караоке-бар «То Место» (пр. Нуркена Абдирова, 5)',
     '💰 *Взнос:* 3 000 ₸ с игрока',
     '🎟️ Ждём подтверждения брони стола!'
   ].join('\n');
 
-  window.open(`https://wa.me/77011863190?text=${encodeURIComponent(text)}`, '_blank', 'noopener');
-  closeModal();
+  function openWhatsAppFallback() {
+    window.open(`https://wa.me/77011863190?text=${encodeURIComponent(waFallbackText)}`, '_blank', 'noopener');
+    closeModal();
+  }
+
+  // Determine API base URL
+  const isDirectHost = window.location.hostname === '136.71.1.182' || window.location.hostname === 'localhost';
+  const apiBase = isDirectHost ? '' : (window.KINOQUIZ_API_URL || 'http://136.71.1.182:3000');
+  const apiUrl = `${apiBase}/api/public/book`;
+
+  let apiSuccess = false;
+  try {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 4500);
+
+    const res = await fetch(apiUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        teamName: team,
+        playersCount: players,
+        captainPhone: phone,
+        gameTitle: game,
+        notes: `Лига: ${league}`
+      }),
+      signal: controller.signal
+    });
+    clearTimeout(timeoutId);
+
+    const data = await res.json();
+    if (res.ok && data.ok) {
+      apiSuccess = true;
+      document.getElementById('regFormContainer').style.display = 'none';
+      const successContainer = document.getElementById('regSuccessContainer');
+      successContainer.style.display = 'block';
+
+      const descEl = document.getElementById('successDesc');
+      if (descEl) {
+        descEl.innerHTML = `Команда «<b>${escapeHtml(team)}</b>» (${escapeHtml(players)} чел.) записана на «<b>${escapeHtml(game)}</b>»!<br><br>📱 Мы отправили подтверждение на ваш номер <b>${escapeHtml(phone)}</b> в WhatsApp.`;
+      }
+    }
+  } catch (err) {
+    console.warn('Direct server booking failed or blocked. Falling back to WhatsApp:', err);
+  }
+
+  // Graceful fallback to WhatsApp if direct server call didn't succeed
+  if (!apiSuccess) {
+    openWhatsAppFallback();
+  }
 });
 
 // Category filter (safeguarded)
