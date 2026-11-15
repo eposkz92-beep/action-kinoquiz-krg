@@ -2103,6 +2103,35 @@ async function handleWebRequest(req, res) {
     return;
   }
 
+  if (url.pathname === '/api/diag') {
+    let acmeAvailable = false;
+    try {
+      await import('acme-client');
+      acmeAvailable = true;
+    } catch (e) {}
+
+    const sslDir = path.resolve(path.dirname(config.dbPath), 'ssl');
+    const certPath = path.join(sslDir, 'cert.pem');
+    const keyPath = path.join(sslDir, 'key.pem');
+    const certExists = fs.existsSync(certPath);
+    const keyExists = fs.existsSync(keyPath);
+
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      ok: true,
+      uptime: process.uptime(),
+      nodeVersion: process.version,
+      acmeAvailable,
+      certExists,
+      keyExists,
+      httpsRunning: Boolean(httpsServerInstance),
+      user: process.env.USER || process.env.USERNAME,
+      qrPort: config.qrPort,
+      bindHost: config.bindHost
+    }, null, 2));
+    return;
+  }
+
   // Public website booking endpoint: saves booking, updates contacts, and auto-sends WhatsApp confirmation to captain
   if (url.pathname === '/api/public/book' && req.method === 'POST') {
     let body = '';
