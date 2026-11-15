@@ -363,8 +363,8 @@ const webServer = http.createServer(async (req, res) => {
   res.end('Not Found');
 });
 
-webServer.listen(config.qrPort, () => {
-  logger.info(`Web QR & Dashboard running at http://localhost:${config.qrPort}`);
+webServer.listen(config.qrPort, '0.0.0.0', () => {
+  logger.info(`Web QR & Dashboard running at http://0.0.0.0:${config.qrPort}`);
 });
 
 // 4. Baileys WhatsApp Connection Manager
