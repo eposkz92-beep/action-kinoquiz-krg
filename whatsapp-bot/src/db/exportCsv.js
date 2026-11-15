@@ -178,7 +178,11 @@ export function escapeHtml(val) {
  */
 export function exportBookingsToExcelHtml(db, options = {}) {
   let records = [];
-  if (db && db.bookings && typeof db.bookings.list === 'function') {
+  if (Array.isArray(db)) {
+    records = db;
+  } else if (Array.isArray(options.records)) {
+    records = options.records;
+  } else if (db && db.bookings && typeof db.bookings.list === 'function') {
     records = db.bookings.list({ limit: 10000 });
   } else if (db && typeof db.prepare === 'function') {
     records = db.prepare('SELECT * FROM bookings ORDER BY created_at DESC;').all();
@@ -188,37 +192,135 @@ export function exportBookingsToExcelHtml(db, options = {}) {
 
   const pricePerPlayer = options.pricePerPlayer || 3000;
 
-  let totalPlayersSum = 0;
-  let totalRevenueSum = 0;
+  // Group records by game (clean title + game date)
+  const groupsMap = new Map();
+  for (const r of records) {
+    const rawTitle = (r.game_title || 'Другие игры').trim();
+    const cleanTitle = rawTitle.replace(/\s*\([^)]+\)/, '').trim() || rawTitle;
+    let gameDate = (r.game_date || '').trim();
 
-  const rows = records.map((r, index) => {
-    const players = Number(r.players_count) || 0;
-    const totalSum = players * pricePerPlayer;
-    totalPlayersSum += players;
-    totalRevenueSum += totalSum;
+    if (!gameDate) {
+      const match = rawTitle.match(/\(([^)]+)\)/);
+      if (match) gameDate = match[1].trim();
+    }
 
-    const sourceLabel = (r.source === 'web' || r.source === 'website') ? 'Сайт' : 'WhatsApp бот';
-    const statusLabel = r.status === 'cancelled' ? 'Отменена' : 'Подтверждена';
-    const bg = index % 2 === 0 ? '#ffffff' : '#f9fafb';
-    const createdAtFormatted = formatBookingDate(r.created_at);
+    const groupKey = gameDate ? `${cleanTitle} (${gameDate})` : cleanTitle;
+    if (!groupsMap.has(groupKey)) {
+      groupsMap.set(groupKey, {
+        groupKey,
+        gameTitle: cleanTitle,
+        gameDate: gameDate || 'Скоро',
+        records: []
+      });
+    }
+    groupsMap.get(groupKey).records.push(r);
+  }
 
-    return `
-      <tr style="background-color: ${bg};">
-        <td style="text-align: center; border: 1px solid #d1d5db; padding: 8px;">${r.id || (index + 1)}</td>
-        <td style="text-align: center; border: 1px solid #d1d5db; padding: 8px; mso-number-format:'\\@'; white-space: nowrap;">${escapeHtml(createdAtFormatted)}</td>
-        <td style="border: 1px solid #d1d5db; padding: 8px; font-weight: bold; color: #111827;">${escapeHtml(r.team_name || '')}</td>
-        <td style="border: 1px solid #d1d5db; padding: 8px;">${escapeHtml(r.captain_name || '')}</td>
-        <td style="border: 1px solid #d1d5db; padding: 8px; mso-number-format:'\\@'; white-space: nowrap;">${escapeHtml(r.captain_phone || '')}</td>
-        <td style="text-align: center; border: 1px solid #d1d5db; padding: 8px; font-weight: bold;">${players}</td>
-        <td style="border: 1px solid #d1d5db; padding: 8px;">${escapeHtml(r.game_title || '')}</td>
-        <td style="text-align: center; border: 1px solid #d1d5db; padding: 8px; mso-number-format:'\\@'; white-space: nowrap;">${escapeHtml(r.game_date || '')}</td>
-        <td style="text-align: right; border: 1px solid #d1d5db; padding: 8px; font-weight: bold; color: #b45309;">${totalSum.toLocaleString('ru-RU')} ₸</td>
-        <td style="border: 1px solid #d1d5db; padding: 8px; text-align: center;">${sourceLabel}</td>
-        <td style="border: 1px solid #d1d5db; padding: 8px; text-align: center;">${statusLabel}</td>
-        <td style="border: 1px solid #d1d5db; padding: 8px;">${escapeHtml(r.notes || '')}</td>
-      </tr>
+  const gameGroups = Array.from(groupsMap.values());
+  let grandTotalPlayers = 0;
+  let grandTotalRevenue = 0;
+
+  let tablesHtml = '';
+  if (gameGroups.length === 0) {
+    tablesHtml = `
+      <table>
+        <thead>
+          <tr>
+            <th style="width: 45px;">№</th>
+            <th style="width: 155px;">Дата заявки</th>
+            <th style="width: 180px;">Команда</th>
+            <th style="width: 140px;">Капитан</th>
+            <th style="width: 150px;">Телефон капитана</th>
+            <th style="width: 80px;">Игроков</th>
+            <th style="width: 220px;">Игра</th>
+            <th style="width: 130px;">Дата игры</th>
+            <th style="width: 120px;">К оплате (₸)</th>
+            <th style="width: 100px;">Источник</th>
+            <th style="width: 110px;">Статус</th>
+            <th style="width: 180px;">Примечания</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr><td colspan="12" style="text-align: center; padding: 20px; color: #9ca3af;">Броней пока нет</td></tr>
+        </tbody>
+      </table>
     `;
-  }).join('\n');
+  } else {
+    tablesHtml = gameGroups.map(group => {
+      let gamePlayersSum = 0;
+      let gameRevenueSum = 0;
+
+      const rows = group.records.map((r, index) => {
+        const players = Number(r.players_count) || 0;
+        const totalSum = players * pricePerPlayer;
+        gamePlayersSum += players;
+        gameRevenueSum += totalSum;
+
+        const sourceLabel = (r.source === 'web' || r.source === 'website') ? 'Сайт' : 'WhatsApp бот';
+        const statusLabel = r.status === 'cancelled' ? 'Отменена' : 'Подтверждена';
+        const bg = index % 2 === 0 ? '#ffffff' : '#f9fafb';
+        const createdAtFormatted = formatBookingDate(r.created_at);
+
+        return `
+          <tr style="background-color: ${bg};">
+            <td style="text-align: center; border: 1px solid #d1d5db; padding: 8px;">${index + 1}</td>
+            <td style="text-align: center; border: 1px solid #d1d5db; padding: 8px; mso-number-format:'\\@'; white-space: nowrap;">${escapeHtml(createdAtFormatted)}</td>
+            <td style="border: 1px solid #d1d5db; padding: 8px; font-weight: bold; color: #111827;">${escapeHtml(r.team_name || '')}</td>
+            <td style="border: 1px solid #d1d5db; padding: 8px;">${escapeHtml(r.captain_name || '')}</td>
+            <td style="border: 1px solid #d1d5db; padding: 8px; mso-number-format:'\\@'; white-space: nowrap;">${escapeHtml(r.captain_phone || '')}</td>
+            <td style="text-align: center; border: 1px solid #d1d5db; padding: 8px; font-weight: bold;">${players}</td>
+            <td style="border: 1px solid #d1d5db; padding: 8px;">${escapeHtml(r.game_title || '')}</td>
+            <td style="text-align: center; border: 1px solid #d1d5db; padding: 8px; mso-number-format:'\\@'; white-space: nowrap;">${escapeHtml(r.game_date || '')}</td>
+            <td style="text-align: right; border: 1px solid #d1d5db; padding: 8px; font-weight: bold; color: #b45309;">${totalSum.toLocaleString('ru-RU')} ₸</td>
+            <td style="border: 1px solid #d1d5db; padding: 8px; text-align: center;">${sourceLabel}</td>
+            <td style="border: 1px solid #d1d5db; padding: 8px; text-align: center;">${statusLabel}</td>
+            <td style="border: 1px solid #d1d5db; padding: 8px;">${escapeHtml(r.notes || '')}</td>
+          </tr>
+        `;
+      }).join('\n');
+
+      grandTotalPlayers += gamePlayersSum;
+      grandTotalRevenue += gameRevenueSum;
+
+      return `
+        <div style="margin-bottom: 28px;">
+          <div style="background-color: #1e293b; color: #ffffff; padding: 10px 14px; font-size: 13pt; font-weight: bold; border-radius: 6px 6px 0 0;">
+            🎬 Игра: ${escapeHtml(group.gameTitle)} &nbsp;|&nbsp; 📅 Дата: ${escapeHtml(group.gameDate)}
+          </div>
+          <table>
+            <thead>
+              <tr>
+                <th style="width: 45px;">№</th>
+                <th style="width: 155px;">Дата заявки</th>
+                <th style="width: 180px;">Команда</th>
+                <th style="width: 140px;">Капитан</th>
+                <th style="width: 150px;">Телефон капитана</th>
+                <th style="width: 80px;">Игроков</th>
+                <th style="width: 220px;">Игра</th>
+                <th style="width: 130px;">Дата игры</th>
+                <th style="width: 120px;">К оплате (₸)</th>
+                <th style="width: 100px;">Источник</th>
+                <th style="width: 110px;">Статус</th>
+                <th style="width: 180px;">Примечания</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${rows}
+            </tbody>
+            <tfoot>
+              <tr class="total-row">
+                <td colspan="5" style="border: 1px solid #b45309; padding: 10px; text-align: right;">ИТОГО ПО ИГРЕ (${group.records.length} ком.):</td>
+                <td style="border: 1px solid #b45309; padding: 10px; text-align: center;">${gamePlayersSum} чел.</td>
+                <td colspan="2" style="border: 1px solid #b45309; padding: 10px;"></td>
+                <td style="border: 1px solid #b45309; padding: 10px; text-align: right; color: #b45309;">${gameRevenueSum.toLocaleString('ru-RU')} ₸</td>
+                <td colspan="3" style="border: 1px solid #b45309; padding: 10px;"></td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      `;
+    }).join('\n');
+  }
 
   const nowStr = new Date().toLocaleString('ru-RU', { timeZone: 'Asia/Almaty' });
 
@@ -248,41 +350,14 @@ export function exportBookingsToExcelHtml(db, options = {}) {
     th { background-color: #f59e0b; color: #000000; font-weight: bold; border: 1px solid #b45309; padding: 10px 8px; text-align: center; }
     td { font-size: 10.5pt; vertical-align: middle; }
     .total-row { background-color: #fef3c7; font-weight: bold; border-top: 2px solid #b45309; }
+    .grand-total { background-color: #fef3c7; border: 2px solid #b45309; padding: 12px 16px; border-radius: 6px; font-size: 12pt; font-weight: bold; color: #92400e; margin-top: 15px; }
   </style>
 </head>
 <body>
   <h2>🎬 Таблица бронирований — ACTION Киноквиз Караганда</h2>
   <p>Сформировано: ${nowStr} • Стоимость: ${pricePerPlayer.toLocaleString('ru-RU')} ₸ / игрок</p>
-  <table>
-    <thead>
-      <tr>
-        <th style="width: 45px;">№</th>
-        <th style="width: 155px;">Дата заявки</th>
-        <th style="width: 180px;">Команда</th>
-        <th style="width: 140px;">Капитан</th>
-        <th style="width: 150px;">Телефон капитана</th>
-        <th style="width: 80px;">Игроков</th>
-        <th style="width: 220px;">Игра</th>
-        <th style="width: 130px;">Дата игры</th>
-        <th style="width: 120px;">К оплате (₸)</th>
-        <th style="width: 100px;">Источник</th>
-        <th style="width: 110px;">Статус</th>
-        <th style="width: 180px;">Примечания</th>
-      </tr>
-    </thead>
-    <tbody>
-      ${rows || '<tr><td colspan="12" style="text-align: center; padding: 20px; color: #9ca3af;">Броней пока нет</td></tr>'}
-    </tbody>
-    <tfoot>
-      <tr class="total-row">
-        <td colspan="5" style="border: 1px solid #b45309; padding: 10px; text-align: right;">ИТОГО:</td>
-        <td style="border: 1px solid #b45309; padding: 10px; text-align: center;">${totalPlayersSum} чел.</td>
-        <td colspan="2" style="border: 1px solid #b45309; padding: 10px;"></td>
-        <td style="border: 1px solid #b45309; padding: 10px; text-align: right; color: #b45309;">${totalRevenueSum.toLocaleString('ru-RU')} ₸</td>
-        <td colspan="3" style="border: 1px solid #b45309; padding: 10px;"></td>
-      </tr>
-    </tfoot>
-  </table>
+  ${tablesHtml}
+  ${records.length > 0 ? `<div class="grand-total">🏆 ОБЩИЙ ИТОГ (ВСЕ ИГРЫ): ${records.length} команд &bull; ${grandTotalPlayers} чел. &bull; ${grandTotalRevenue.toLocaleString('ru-RU')} ₸</div>` : ''}
 </body>
 </html>
   `.trim();
