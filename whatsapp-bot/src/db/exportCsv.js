@@ -197,7 +197,7 @@ export function exportBookingsToExcelHtml(db, options = {}) {
     totalPlayersSum += players;
     totalRevenueSum += totalSum;
 
-    const sourceLabel = r.source === 'web' ? 'Сайт' : 'WhatsApp бот';
+    const sourceLabel = (r.source === 'web' || r.source === 'website') ? 'Сайт' : 'WhatsApp бот';
     const statusLabel = r.status === 'cancelled' ? 'Отменена' : 'Подтверждена';
     const bg = index % 2 === 0 ? '#ffffff' : '#f9fafb';
     const createdAtFormatted = formatBookingDate(r.created_at);

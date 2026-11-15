@@ -294,7 +294,7 @@ export function exportBookingsToXlsxBuffer(db, options = {}) {
     totalPlayersSum += players;
     totalRevenueSum += sum;
 
-    const sourceLabel = r.source === 'web' ? 'Сайт' : 'WhatsApp бот';
+    const sourceLabel = (r.source === 'web' || r.source === 'website') ? 'Сайт' : 'WhatsApp бот';
     const statusLabel = r.status === 'cancelled' ? 'Отменена' : 'Подтверждена';
     const formattedDate = formatBookingDate(r.created_at);
 

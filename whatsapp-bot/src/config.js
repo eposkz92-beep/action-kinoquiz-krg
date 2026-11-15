@@ -36,6 +36,7 @@ export const config = {
   telegram: {
     botToken: process.env.TELEGRAM_BOT_TOKEN || '9063876092:AAHscUTNdY39nZ0OJuG8UyKvjL4ibV3-AXE',
     chatId: process.env.TELEGRAM_CHAT_ID || '-5567159550',
+    personalChatId: process.env.TELEGRAM_PERSONAL_CHAT_ID || '443670744',
     get enabled() {
       return Boolean(this.botToken && this.chatId);
     }

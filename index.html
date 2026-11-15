@@ -954,8 +954,30 @@ document.getElementById('regForm').addEventListener('submit', async e => {
   const team = String(d.get('team') || '').trim();
   const players = String(d.get('players') || '').trim();
   const phone = String(d.get('phone') || '').trim();
-  const game = String(d.get('game') || '').trim();
+  const rawGame = String(d.get('game') || '').trim();
   const league = String(d.get('league') || '').trim();
+
+  // Extract clean game title and formatted game date
+  let cleanGameTitle = rawGame;
+  let gameDate = '';
+
+  const dateMatch = rawGame.match(/\(([^)]+)\)/);
+  if (dateMatch) {
+    gameDate = dateMatch[1].trim();
+    cleanGameTitle = rawGame.replace(/\s*\([^)]+\)/, '').trim();
+  }
+
+  const selectedOpt = gameSelect ? gameSelect.options[gameSelect.selectedIndex] : null;
+  if (selectedOpt && selectedOpt.textContent) {
+    const textMatch = selectedOpt.textContent.match(/\(([^)]+)\)/);
+    if (textMatch) {
+      gameDate = textMatch[1].trim();
+    }
+  }
+
+  if (!gameDate) {
+    gameDate = rawGame.toLowerCase().includes('аним') ? 'ВТ, 24 ноября в 19:30' : 'ВТ, 17 ноября в 19:30';
+  }
 
   const submitBtn = document.getElementById('regSubmitBtn');
   if (submitBtn) {
@@ -964,7 +986,7 @@ document.getElementById('regForm').addEventListener('submit', async e => {
   }
 
   // Pre-formatted WhatsApp fallback text with themed emojis
-  const g = game.toLowerCase();
+  const g = rawGame.toLowerCase();
   let headerEmoji = '🎬🍿';
   let themeEmoji = '🎯';
   let punchline = 'Готовы к кинобаттлу!';
@@ -990,7 +1012,7 @@ document.getElementById('regForm').addEventListener('submit', async e => {
   const waFallbackText = [
     `${headerEmoji} *Здравствуйте! Хотим забронировать стол на ACTION Киноквиз в Караганде!*`,
     '',
-    `📅 *Выбранная игра:* ${game} ${themeEmoji}`,
+    `📅 *Выбранная игра:* ${cleanGameTitle} (${gameDate}) ${themeEmoji}`,
     `💬 *Настрой команды:* ${punchline}`,
     `👥 *Команда:* «${team}»`,
     `♟️ *Количество игроков:* ${players} чел.`,
@@ -1022,10 +1044,13 @@ document.getElementById('regForm').addEventListener('submit', async e => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         teamName: team,
+        captainName: team,
         playersCount: players,
         captainPhone: phone,
-        gameTitle: game,
-        notes: `Лига: ${league}`
+        gameTitle: cleanGameTitle,
+        gameDate: gameDate,
+        notes: `Лига: ${league}`,
+        source: 'website'
       }),
       signal: controller.signal
     });
@@ -1040,7 +1065,7 @@ document.getElementById('regForm').addEventListener('submit', async e => {
 
       const descEl = document.getElementById('successDesc');
       if (descEl) {
-        descEl.innerHTML = `Команда «<b>${escapeHtml(team)}</b>» (${escapeHtml(players)} чел.) записана на «<b>${escapeHtml(game)}</b>»!<br><br>📱 Мы отправили подтверждение на ваш номер <b>${escapeHtml(phone)}</b> в WhatsApp.`;
+        descEl.innerHTML = `Команда «<b>${escapeHtml(team)}</b>» (${escapeHtml(players)} чел.) записана на «<b>${escapeHtml(cleanGameTitle)}</b>»!<br>📅 <b>Дата проведения:</b> ${escapeHtml(gameDate)}<br><br>📱 Мы отправили подтверждение на ваш номер <b>${escapeHtml(phone)}</b> в WhatsApp.`;
       }
     }
   } catch (err) {

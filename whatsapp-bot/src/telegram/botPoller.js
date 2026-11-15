@@ -179,10 +179,16 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames, b
 
         const statusIcon = b.status === 'cancelled' ? '❌' : '✅';
 
+        const isWeb = b.source === 'web' || b.source === 'website';
+        const sourceTag = isWeb ? ' • 🌐 <b>[Сайт]</b>' : ' • 💬 <i>[WhatsApp]</i>';
+        const gameDateStr = b.game_date ? ` • 📅 <b>${escapeHtml(b.game_date)}</b>` : '';
+
         lines.push(`<b>${i + 1}. «${escapeHtml(b.team_name)}»</b> ${statusIcon} — 👥 <b>${players} чел.</b> (${fee.toLocaleString('ru-RU')} ₸)`);
-        lines.push(`   👤 ${escapeHtml(b.captain_name)} • 📱 ${waLink}`);
+        lines.push(`   👤 ${escapeHtml(b.captain_name)} • 📱 ${waLink}${sourceTag}`);
         if (!filterGame) {
-          lines.push(`   🎬 <i>${escapeHtml(b.game_title)} (${escapeHtml(b.game_date)})</i>`);
+          lines.push(`   🎬 <i>${escapeHtml(b.game_title)}</i>${gameDateStr}`);
+        } else if (gameDateStr) {
+          lines.push(`   📅 <i>${escapeHtml(b.game_date)}</i>`);
         }
         if (b.notes) {
           lines.push(`   📝 <i>${escapeHtml(b.notes)}</i>`);

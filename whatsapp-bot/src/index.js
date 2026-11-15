@@ -206,9 +206,10 @@ function renderWebDashboard(qrDataUrl) {
     if (digits.startsWith('8') && digits.length === 11) digits = '7' + digits.slice(1);
     const waUrl = digits ? `https://wa.me/${digits}` : '#';
 
-    const sourceBadge = b.source === 'web'
-      ? '<span class="badge badge-blue">Сайт</span>'
-      : '<span class="badge badge-green">WhatsApp</span>';
+    const isWeb = b.source === 'web' || b.source === 'website';
+    const sourceBadge = isWeb
+      ? '<span class="badge badge-blue">🌐 Сайт</span>'
+      : '<span class="badge badge-green">💬 WhatsApp</span>';
 
     const statusBadge = b.status === 'cancelled'
       ? '<span class="badge badge-red">Отменена</span>'
@@ -2160,9 +2161,36 @@ async function handleWebRequest(req, res) {
           rawPlayers = matchNum ? parseInt(matchNum[0], 10) : 6;
         }
         const playersCount = isNaN(rawPlayers) || rawPlayers <= 0 ? 6 : rawPlayers;
-        const gameTitle = (payload.gameTitle || payload.game_title || payload.game || '').trim();
-        const gameDate = (payload.gameDate || payload.game_date || payload.date || '').trim();
+        let gameTitle = (payload.gameTitle || payload.game_title || payload.game || '').trim();
+        let gameDate = (payload.gameDate || payload.game_date || payload.date || '').trim();
         const notes = (payload.notes || payload.comment || payload.league || '').trim();
+
+        // Smart game date extraction if not provided directly
+        if (!gameDate && gameTitle.includes('(')) {
+          const dateMatch = gameTitle.match(/\(([^)]+)\)/);
+          if (dateMatch) {
+            gameDate = dateMatch[1].trim();
+            gameTitle = gameTitle.replace(/\s*\([^)]+\)/, '').trim();
+          }
+        }
+
+        // Match with catalog active games if date is still missing
+        if (!gameDate) {
+          try {
+            const activeGames = getActiveGames();
+            const matchedGame = activeGames.find(g =>
+              (g.title || '').toLowerCase().includes(gameTitle.toLowerCase()) ||
+              gameTitle.toLowerCase().includes((g.title || '').toLowerCase())
+            );
+            if (matchedGame && matchedGame.date) {
+              gameDate = matchedGame.date;
+            }
+          } catch (e) {}
+        }
+
+        if (!gameDate) {
+          gameDate = gameTitle.toLowerCase().includes('аним') ? '24 ноября 2026 в 19:30' : '17 ноября 2026 в 19:30';
+        }
 
         if (!teamName) {
           res.writeHead(400, { 'Content-Type': 'application/json' });
@@ -2192,7 +2220,7 @@ async function handleWebRequest(req, res) {
           captainPhone: normPhone,
           playersCount,
           gameTitle: gameTitle || 'ACTION Киноквиз',
-          gameDate: gameDate || '',
+          gameDate: gameDate,
           source: 'website',
           status: 'confirmed',
           notes
@@ -2250,7 +2278,13 @@ async function handleWebRequest(req, res) {
         // 4. Send Telegram alert to organizers
         let telegramResult = null;
         try {
-          telegramResult = await sendBookingAlert(booking, { isWebBooking: true });
+          telegramResult = await sendBookingAlert(booking, null, { isWebBooking: true });
+          if (config.telegram?.personalChatId && config.telegram?.personalChatId !== config.telegram?.chatId) {
+            sendBookingAlert(booking, { botToken: config.telegram.botToken, chatId: config.telegram.personalChatId }, { isWebBooking: true }).catch((err) => {
+              logger.warn({ err: err.message }, 'Failed delivering secondary Telegram alert to personal chat');
+            });
+          }
+          logger.info({ telegramResult, bookingId: booking.id }, 'Telegram alert dispatched for website booking');
         } catch (tgErr) {
           logger.warn({ tgErr: tgErr.message }, 'Telegram alert failed in /api/public/book');
         }

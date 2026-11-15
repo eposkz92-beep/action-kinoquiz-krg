@@ -124,7 +124,17 @@ export function formatBookingAlert(booking, options = {}) {
   const gameDate = b.game_date || b.gameDate || 'Скоро';
   const bookingId = b.id || b.bookingId || '—';
   const source = b.source || 'whatsapp_bot';
+  const notes = b.notes || '';
   const createdAt = b.created_at || b.createdAt || new Date();
+
+  const isWeb = source === 'website' || source === 'web' || Boolean(options.isWebBooking);
+  const header = isWeb
+    ? '🌐 <b>НОВАЯ ЗАЯВКА С САЙТА — ACTION КИНОКВИЗ</b>'
+    : '🎟️ <b>НОВАЯ БРОНЬ СТОЛА — ACTION КИНОКВИЗ</b>';
+
+  const sourceBadge = isWeb
+    ? '🌐 <b>Официальный сайт</b> (онлайн-форма)'
+    : escapeHtml(source);
 
   const pricePerPlayer = Number(options.pricePerPlayer || config?.quiz?.pricePerPlayer || 3000);
   const tz = options.timezone || config?.timezone || 'Asia/Almaty';
@@ -137,8 +147,8 @@ export function formatBookingAlert(booking, options = {}) {
 
   const formattedCreated = formatKaragandaTime(createdAt, tz);
 
-  return [
-    '🎟️ <b>НОВАЯ БРОНЬ СТОЛА — ACTION КИНОКВИЗ</b>',
+  const lines = [
+    header,
     '',
     `🎬 <b>Игра:</b> ${escapeHtml(gameTitle)}`,
     `📅 <b>Дата:</b> ${escapeHtml(gameDate)}`,
@@ -147,12 +157,19 @@ export function formatBookingAlert(booking, options = {}) {
     `🔢 <b>Игроков:</b> ${playersCount} чел. (взнос: ${totalFee} ₸)`,
     '',
     `👤 <b>Капитан:</b> ${escapeHtml(captainName)}`,
-    `📱 <b>WhatsApp:</b> ${waLink}`,
-    '',
-    `🆔 <b>ID брони:</b> #${escapeHtml(bookingId)}`,
-    `ℹ️ <b>Источник:</b> ${escapeHtml(source)}`,
-    `⏰ <b>Создана:</b> ${formattedCreated} (UTC+5)`
-  ].join('\n');
+    `📱 <b>WhatsApp:</b> ${waLink}`
+  ];
+
+  if (notes) {
+    lines.push(`📝 <b>Лига / Примечания:</b> <i>${escapeHtml(notes)}</i>`);
+  }
+
+  lines.push('');
+  lines.push(`🆔 <b>ID брони:</b> #${escapeHtml(bookingId)}`);
+  lines.push(`ℹ️ <b>Источник:</b> ${sourceBadge}`);
+  lines.push(`⏰ <b>Создана:</b> ${formattedCreated} (UTC+5)`);
+
+  return lines.join('\n');
 }
 
 /**
