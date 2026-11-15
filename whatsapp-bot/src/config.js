@@ -25,6 +25,7 @@ export const config = {
   logLevel: process.env.LOG_LEVEL || (process.env.NODE_ENV === 'test' ? 'silent' : 'info'),
   port: parseIntSafe(process.env.PORT, 3000),
   qrPort: parseIntSafe(process.env.QR_PORT, 3000),
+  bindHost: process.env.BIND_HOST || '127.0.0.1', // Stealth mode: binds to local loopback only
   dbPath: process.env.DB_PATH || path.join(botRootDir, 'data', 'kinoquiz.db'),
   authDir: process.env.AUTH_DIR || path.join(botRootDir, 'auth_info_baileys'),
   exportDir: process.env.CSV_EXPORT_DIR || path.join(botRootDir, 'exports'),
