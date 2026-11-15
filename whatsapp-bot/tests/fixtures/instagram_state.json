@@ -1,0 +1,62 @@
+{
+  "version": 1,
+  "profile": "action_kinoquiz_krg",
+  "last_sync_utc": "2026-11-14T20:00:00.000Z",
+  "processed_posts": {
+    "DfsRS-0hNQ-": {
+      "type": "ANNOUNCEMENT",
+      "date_utc": "2026-11-24T19:30:00",
+      "title": "Киномарафон: 100 вопросов",
+      "image_path": "assets/images/poster-20261124-DfsRS-0hNQ-.jpg"
+    },
+    "DfAnime-002-": {
+      "type": "ANNOUNCEMENT",
+      "date_utc": "2026-12-01T19:30:00",
+      "title": "Культовые Аниме",
+      "image_path": "assets/images/poster-anime-naruto.jpg"
+    },
+    "DfYHw8gsIDY": {
+      "type": "ANNOUNCEMENT",
+      "date_utc": "2026-10-15T19:30:00",
+      "title": "Вселенная Гарри Поттера",
+      "image_path": "assets/images/poster-hp.jpg"
+    },
+    "DfdGpDnHE5G": {
+      "type": "RESULTS",
+      "date_utc": "2026-11-07T21:03:55",
+      "title": "Итоги 4 игры: Halloween Vibes 🎃",
+      "image_path": "assets/images/result-20261107-DfdGpDnHE5G-0.jpg"
+    },
+    "DfQfH8GsT4x": {
+      "type": "STANDINGS",
+      "date_utc": "2026-11-02T23:27:52",
+      "teams_count": 9
+    },
+    "DfQeldksBgK": {
+      "type": "SCHEDULE_SUMMARY",
+      "date_utc": "2026-11-02T23:23:10"
+    }
+  },
+  "active_games": [
+    {
+      "id": "game-1",
+      "title": "Киномарафон: 100 вопросов",
+      "dateStr": "24 ноября",
+      "timeStr": "19:30",
+      "dayName": "Вторник",
+      "price": "3 000 ₸",
+      "status": "open",
+      "desc": "Караоке-бар «То Место»"
+    },
+    {
+      "id": "game-2",
+      "title": "Культовые Аниме",
+      "dateStr": "1 декабря",
+      "timeStr": "19:30",
+      "dayName": "Вторник",
+      "price": "3 000 ₸",
+      "status": "open",
+      "desc": "Караоке-бар «То Место»"
+    }
+  ]
+}

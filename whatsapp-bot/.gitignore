@@ -1,0 +1,43 @@
+# Dependencies
+node_modules/
+package-lock.json
+
+# Environment and sensitive keys
+.env
+.env.local
+.env.*.local
+*.pem
+service_account.json
+
+# WhatsApp Baileys Authentication & Session Data (CRITICAL: contains private keys)
+auth_info_baileys/
+auth_info*/
+*.baileys/
+
+# SQLite Database files
+*.db
+*.db-journal
+*.db-wal
+*.db-shm
+*.sqlite
+*.sqlite3
+data/
+
+# Exported CSVs and reports (contains customer PII: phone numbers, names)
+exports/
+*.csv
+
+# Logs & Process Output
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# OS and Editor artifacts
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+*.swo

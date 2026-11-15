@@ -1,0 +1,38 @@
+{
+  "name": "action-kinoquiz-whatsapp-bot",
+  "version": "1.0.0",
+  "description": "Autonomous WhatsApp Bot for ACTION Kinoquiz in Karaganda",
+  "type": "module",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js",
+    "test": "node --test tests/*.test.js",
+    "test:db": "node --test tests/db.test.js",
+    "test:all": "node --test tests/*.test.js",
+    "stats": "node src/cli.js stats",
+    "export:csv": "node src/cli.js export-csv",
+    "games": "node src/cli.js list-games"
+  },
+  "keywords": [
+    "whatsapp",
+    "baileys",
+    "bot",
+    "kinoquiz",
+    "sqlite",
+    "karaganda"
+  ],
+  "author": "ACTION Kinoquiz Team",
+  "license": "ISC",
+  "engines": {
+    "node": ">=22.5.0"
+  },
+  "dependencies": {
+    "@hapi/boom": "^10.0.1",
+    "@whiskeysockets/baileys": "^6.7.19",
+    "dotenv": "^16.4.7",
+    "node-cron": "^3.0.3",
+    "pino": "^9.6.0",
+    "qrcode": "^1.5.4",
+    "qrcode-terminal": "^0.12.0"
+  }
+}
