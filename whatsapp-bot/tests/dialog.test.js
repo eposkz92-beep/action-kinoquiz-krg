@@ -533,4 +533,53 @@ describe('Dialog FSM & Menu Test Suite (Milestone M2)', () => {
       await env.cleanup();
     }
   });
+
+  // 10. WhatsApp LID Masked Identity & Explicit Phone Prompting
+  test('10. WhatsApp LID masked identity handles explicit phone prompting and inline phone extraction', async () => {
+    const env = await createTestEnv({ inMemory: true });
+    try {
+      // 10a. LID user provides name only -> transitions to AWAITING_CAPTAIN_PHONE
+      const lidJid = '31181613584540@lid';
+      await handleIncomingMessage({ jid: lidJid, text: '1', db: env });
+      await handleIncomingMessage({ jid: lidJid, text: 'ДНК', db: env });
+      await handleIncomingMessage({ jid: lidJid, text: '5', db: env });
+      await handleIncomingMessage({ jid: lidJid, text: '1', db: env });
+
+      const nameRes = await handleIncomingMessage({ jid: lidJid, text: 'Азамат', db: env });
+      assert.equal(nameRes.state, FSM_STATES.AWAITING_CAPTAIN_PHONE, 'Should prompt for phone on LID accounts');
+      assert.ok(nameRes.replies[0].includes('номер телефона'));
+
+      // Invalid phone check
+      const badPhone = await handleIncomingMessage({ jid: lidJid, text: '123', db: env });
+      assert.equal(badPhone.state, FSM_STATES.AWAITING_CAPTAIN_PHONE);
+      assert.ok(badPhone.replies[0].includes('корректный номер'));
+
+      // Valid phone provided
+      const phoneRes = await handleIncomingMessage({ jid: lidJid, text: '+7 701 555 44 33', db: env });
+      assert.equal(phoneRes.state, FSM_STATES.IDLE);
+      assert.ok(phoneRes.bookingCreated);
+      assert.equal(phoneRes.bookingCreated.captain_name, 'Азамат');
+      assert.equal(phoneRes.bookingCreated.captain_phone, '+77015554433');
+      assert.ok(phoneRes.replies[0].includes('+77015554433'));
+
+      // 10b. LID user provides both name and phone inline
+      const lidJid2 = '31181613584540_2@lid';
+      await handleIncomingMessage({ jid: lidJid2, text: '1', db: env });
+      await handleIncomingMessage({ jid: lidJid2, text: 'Звёзды Кино', db: env });
+      await handleIncomingMessage({ jid: lidJid2, text: '4', db: env });
+      await handleIncomingMessage({ jid: lidJid2, text: '1', db: env });
+
+      const inlineRes = await handleIncomingMessage({
+        jid: lidJid2,
+        text: 'Капитан Джек 87059998877',
+        db: env
+      });
+      assert.equal(inlineRes.state, FSM_STATES.IDLE);
+      assert.ok(inlineRes.bookingCreated);
+      assert.equal(inlineRes.bookingCreated.captain_name, 'Капитан Джек');
+      assert.equal(inlineRes.bookingCreated.captain_phone, '+77059998877');
+    } finally {
+      await env.cleanup();
+    }
+  });
 });

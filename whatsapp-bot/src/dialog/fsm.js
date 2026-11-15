@@ -24,7 +24,8 @@ export const FSM_STATES = {
   AWAITING_TEAM_NAME: 'AWAITING_TEAM_NAME',
   AWAITING_PLAYERS_COUNT: 'AWAITING_PLAYERS_COUNT',
   AWAITING_GAME_SELECTION: 'AWAITING_GAME_SELECTION',
-  AWAITING_CAPTAIN_NAME: 'AWAITING_CAPTAIN_NAME'
+  AWAITING_CAPTAIN_NAME: 'AWAITING_CAPTAIN_NAME',
+  AWAITING_CAPTAIN_PHONE: 'AWAITING_CAPTAIN_PHONE'
 };
 
 const CANCEL_COMMANDS = new Set([
@@ -67,13 +68,48 @@ export function isSessionTimedOut(session, now = new Date()) {
 }
 
 /**
+ * Checks whether a JID or string represents a masked WhatsApp LID rather than a real phone number.
+ * @param {string} jid
+ * @returns {boolean}
+ */
+export function isLidJid(jid) {
+  if (!jid || typeof jid !== 'string') return false;
+  if (jid.includes('@lid')) return true;
+  const part = jid.split('@')[0].split(':')[0];
+  // WhatsApp LIDs are 13+ digit numbers (often starting with 31), not valid Kazakh/CIS phones
+  if (/^\d{13,}$/.test(part)) return true;
+  return false;
+}
+
+/**
+ * Extracts a phone number from arbitrary user text (e.g. "Азамат +7 701 123 45 67").
+ * @param {string} text
+ * @returns {{ raw: string, formatted: string }|null}
+ */
+export function extractPhoneFromText(text) {
+  if (!text || typeof text !== 'string') return null;
+  const m = text.match(/(?:\+?7|8)?[\s\-(]*7\d{2}[\s\-)]*\d{3}[\s\-]*\d{2}[\s\-]*\d{2}/);
+  if (m) {
+    const raw = m[0];
+    const formatted = toInternationalPhone(raw);
+    if (formatted) return { raw, formatted };
+  }
+  return null;
+}
+
+/**
  * Formats a phone string into international format.
+ * Rejects masked WhatsApp LIDs.
  * @param {string} phone
  * @returns {string}
  */
-function toInternationalPhone(phone) {
+export function toInternationalPhone(phone) {
   const norm = normalizePhone(phone);
   if (!norm) return '';
+  // Masked LIDs have 13+ digits without a leading +
+  if (norm.length >= 13 && !String(phone).trim().startsWith('+')) {
+    return '';
+  }
   if (norm.startsWith('+')) return norm;
   if (norm.startsWith('8') && norm.length === 11) {
     return '+7' + norm.slice(1);
@@ -415,7 +451,37 @@ export async function handleIncomingMessage({
         return { replies, state: FSM_STATES.AWAITING_CAPTAIN_NAME };
       }
 
+      // 1. Check if user provided phone along with name (e.g. "Азамат +7 701 123 45 67")
+      const phoneInText = extractPhoneFromText(cleanCaptain);
+      let captainName = cleanCaptain;
+      let explicitPhone = '';
+      if (phoneInText) {
+        explicitPhone = phoneInText.formatted;
+        captainName = stripTypographicQuotes(
+          cleanCaptain.replace(phoneInText.raw, '').replace(/[(),:;]/g, ' ').trim()
+        );
+      }
+
+      // 2. Check if sender JID is an LID (masked ID like 31181613584540@lid)
+      const isLid = isLidJid(safeJid);
+
+      // If no explicit phone was provided and this is an LID, ask for the phone number
+      if (!explicitPhone && isLid) {
+        const nextData = { ...session.data, captainName: captainName || cleanCaptain };
+        db.sessions.set(jid, FSM_STATES.AWAITING_CAPTAIN_PHONE, nextData);
+        replies.push(
+          [
+            `👤 Капитан: *${captainName || cleanCaptain}*`,
+            '',
+            '📱 Введите *номер телефона* капитана для подтверждения брони:',
+            '_(например: +7 701 123 45 67 или 87011234567)_'
+          ].join('\n')
+        );
+        return { replies, state: FSM_STATES.AWAITING_CAPTAIN_PHONE };
+      }
+
       const captainPhone =
+        explicitPhone ||
         toInternationalPhone(jidPhonePart) ||
         '+77011863190';
       const selectedGame = session.data.selectedGame || {};
@@ -425,7 +491,51 @@ export async function handleIncomingMessage({
 
       const booking = db.bookings.create({
         teamName: session.data.teamName,
-        captainName: cleanCaptain,
+        captainName: captainName || cleanCaptain,
+        captainPhone: captainPhone,
+        playersCount: session.data.playersCount,
+        gameTitle: gameTitle,
+        gameDate: gameDate,
+        source: 'whatsapp_bot',
+        status: 'confirmed',
+        notes: `Время: ${timeStr}`
+      });
+
+      // Clear session after successful booking
+      db.sessions.clear(jid);
+
+      const card = formatConfirmationCard(booking);
+      replies.push(card);
+
+      return {
+        replies,
+        bookingCreated: booking,
+        state: FSM_STATES.IDLE
+      };
+    }
+
+    case FSM_STATES.AWAITING_CAPTAIN_PHONE: {
+      const cleanDigits = trimmed.replace(/\D/g, '');
+      if (cleanDigits.length < 10 || cleanDigits.length > 15) {
+        replies.push(
+          [
+            '❌ Пожалуйста, введите корректный номер телефона капитана (от 10 цифр):',
+            '_(например: +7 701 123 45 67 или 87011234567)_'
+          ].join('\n')
+        );
+        return { replies, state: FSM_STATES.AWAITING_CAPTAIN_PHONE };
+      }
+
+      const captainPhone = toInternationalPhone(trimmed) || ('+' + cleanDigits);
+      const captainName = session.data.captainName || 'Капитан';
+      const selectedGame = session.data.selectedGame || {};
+      const gameTitle = selectedGame.title || 'ACTION Киноквиз';
+      const gameDate = selectedGame.dateStr || 'Вторник 19:30';
+      const timeStr = selectedGame.timeStr || '19:30';
+
+      const booking = db.bookings.create({
+        teamName: session.data.teamName,
+        captainName: captainName,
         captainPhone: captainPhone,
         playersCount: session.data.playersCount,
         gameTitle: gameTitle,
