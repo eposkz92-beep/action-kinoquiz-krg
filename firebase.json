@@ -5,7 +5,11 @@
     "ignore": [
       "firebase.json",
       ".firebaserc",
-      "**/.*"
+      "**/.*",
+      "whatsapp-bot/**",
+      "scripts/**",
+      "*.py",
+      "*.md"
     ],
     "headers": [
       {
