@@ -2,8 +2,14 @@ import { exportBookingsToXlsxBuffer } from '../db/exportXlsx.js';
 import { escapeHtml } from '../db/exportCsv.js';
 import { getActiveGames } from '../games/gameLoader.js';
 import { getGamesArchive } from '../games/gamesArchive.js';
-import { executeManualBroadcast } from '../broadcast/manualBroadcast.js';
-import { sendBroadcastLaunchAlert } from './notifier.js';
+import {
+  executeManualBroadcast,
+  prepareBroadcastTemplate,
+  resolveBroadcastRecipients,
+  BROADCAST_TEMPLATES
+} from '../broadcast/manualBroadcast.js';
+import { personalizeMessage } from '../broadcast/broadcaster.js';
+import { sendBroadcastLaunchAlert, sendBookingAlert } from './notifier.js';
 
 /**
  * Builds an ASCII/Emoji progress bar
@@ -77,6 +83,40 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames, b
       });
     } catch (e) {}
   }
+
+  async function editOrSendMessage(chatId, messageId, text, extra = {}) {
+    if (messageId) {
+      try {
+        const res = await fetch(`https://api.telegram.org/bot${token}/editMessageText`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: chatId,
+            message_id: messageId,
+            text,
+            parse_mode: 'HTML',
+            disable_web_page_preview: true,
+            ...extra
+          })
+        });
+        const data = await res.json();
+        if (data.ok) return data;
+      } catch (e) {}
+    }
+    return await sendMessage(chatId, text, extra);
+  }
+
+  const tgSessions = new Map();
+
+  const MAIN_REPLY_KEYBOARD = {
+    keyboard: [
+      [{ text: '📊 Статистика' }, { text: '📋 Список броней' }],
+      [{ text: '📢 Срочная рассылка' }, { text: '➕ Добавить бронь' }],
+      [{ text: '📜 Архив игр' }, { text: '📥 Скачать Excel' }]
+    ],
+    resize_keyboard: true,
+    is_persistent: true
+  };
 
   async function sendExcelDocument(chatId) {
     try {
@@ -166,6 +206,9 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames, b
           [
             { text: '🌟 Все игры', callback_data: 'bookings' },
             { text: '📥 Скачать Excel', callback_data: 'excel' }
+          ],
+          [
+            { text: '« В главное меню', callback_data: 'menu' }
           ]
         ]
       };
@@ -223,6 +266,9 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames, b
           [
             { text: '📋 Список броней', callback_data: 'bookings' },
             { text: '📥 Скачать Excel', callback_data: 'excel' }
+          ],
+          [
+            { text: '« В главное меню', callback_data: 'menu' }
           ]
         ]
       };
@@ -280,7 +326,8 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames, b
             { text: '📋 Список броней', callback_data: 'bookings' }
           ],
           [
-            { text: '📥 Скачать Excel (.xlsx)', callback_data: 'excel' }
+            { text: '📥 Скачать Excel (.xlsx)', callback_data: 'excel' },
+            { text: '« В главное меню', callback_data: 'menu' }
           ]
         ]
       };
@@ -292,30 +339,56 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames, b
     }
   }
 
-  async function sendMainMenu(chatId) {
+  async function sendMainMenu(chatId, messageId = null) {
+    tgSessions.delete(chatId);
+    const games = getActiveGames();
+    const g1 = games[0] || { title: 'Киномарафон: 100 вопросов', dateStr: '17 ноября' };
+    const g2 = games[1] || { title: 'Культовые Аниме', dateStr: '24 ноября' };
+
+    const allBookings = db.bookings?.list({ limit: 1000 }) || [];
+    const bGame1 = allBookings.filter(b => b.status !== 'cancelled' && ((b.game_title || '').includes(g1.title) || (b.game_date || '').includes(g1.dateStr)));
+    const bGame2 = allBookings.filter(b => b.status !== 'cancelled' && ((b.game_title || '').includes(g2.title) || (b.game_date || '').includes(g2.dateStr)));
+
+    const pGame1 = bGame1.reduce((sum, b) => sum + (Number(b.players_count) || 0), 0);
+    const pGame2 = bGame2.reduce((sum, b) => sum + (Number(b.players_count) || 0), 0);
+
+    const contactsCount = db.contacts ? db.contacts.list({ limit: 1000 }).length : 0;
+    const freeTables1 = Math.max(0, Math.floor((venueCapacity - pGame1) / 6));
+
+    const shortG1 = g1.title.length > 20 ? g1.title.slice(0, 18) + '…' : g1.title;
+    const shortG2 = g2.title.length > 20 ? g2.title.slice(0, 18) + '…' : g2.title;
+
     const text = [
       '🎬 <b>ACTION Киноквиз Караганда — Панель управления</b>',
       '',
-      'Выберите нужное действие:'
+      `🎯 <b>Ближайшая игра:</b> «${escapeHtml(g1.title)}» (${escapeHtml(g1.dateStr)})`,
+      `   👥 <b>${bGame1.length}</b> команд (${pGame1} чел.) • Свободно ~${freeTables1} столов`,
+      '',
+      `🗓 <b>Следующая игра:</b> «${escapeHtml(g2.title)}» (${escapeHtml(g2.dateStr)})`,
+      `   👥 <b>${bGame2.length}</b> команд (${pGame2} чел.)`,
+      '',
+      `📱 <b>База контактов:</b> ${contactsCount} капитанов`,
+      '',
+      '<i>Выберите нужное действие кнопками ниже:</i>'
     ].join('\n');
 
     const replyMarkup = {
       inline_keyboard: [
         [
-          { text: '📊 Статистика и посадка', callback_data: 'stats' },
-          { text: '📜 Архив всех игр', callback_data: 'archive' }
+          { text: '📊 Посадка зала', callback_data: 'stats' },
+          { text: '📋 Список броней', callback_data: 'bookings' }
         ],
         [
-          { text: '📋 Список броней', callback_data: 'bookings' },
-          { text: '📥 Скачать Excel (.xlsx)', callback_data: 'excel' }
+          { text: '📢 Срочная рассылка', callback_data: 'bc_start' },
+          { text: '➕ Добавить бронь', callback_data: 'add_start' }
         ],
         [
-          { text: '🎬 Киномарафон (17.11)', callback_data: 'filter_game_1' },
-          { text: '🎌 Аниме (24.11)', callback_data: 'filter_game_2' }
+          { text: `🎬 ${escapeHtml(shortG1)}`, callback_data: 'filter_game_1' },
+          { text: `🎌 ${escapeHtml(shortG2)}`, callback_data: 'filter_game_2' }
         ],
         [
-          { text: '➕ Быстрая бронь', callback_data: 'help_add' },
-          { text: '📢 Срочная рассылка', callback_data: 'bc_menu' }
+          { text: '📜 Архив всех игр', callback_data: 'archive' },
+          { text: '📥 Скачать Excel', callback_data: 'excel' }
         ],
         [
           { text: '🔄 Обновить игры с GitHub', callback_data: 'sync' }
@@ -323,52 +396,605 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames, b
       ]
     };
 
-    await sendMessage(chatId, text, { reply_markup: replyMarkup });
+    if (messageId) {
+      await editOrSendMessage(chatId, messageId, text, { reply_markup: replyMarkup });
+    } else {
+      await sendMessage(chatId, text, {
+        reply_markup: {
+          ...replyMarkup,
+          ...MAIN_REPLY_KEYBOARD
+        }
+      });
+    }
   }
 
-  async function sendBroadcastMenu(chatId) {
+  // --- INTERACTIVE BROADCAST WIZARD ---
+
+  async function startBroadcastWizard(chatId, messageId = null) {
     const games = getActiveGames();
-    const g1 = games[0] ? games[0].title : 'Киномарафон: 100 вопросов';
-    const g2 = games[1] ? games[1].title : 'Культовые Аниме';
+    const g1 = games[0] || { title: 'Киномарафон: 100 вопросов', dateStr: '17 ноября' };
+    const g2 = games[1] || { title: 'Культовые Аниме', dateStr: '24 ноября' };
+
+    const countG1 = resolveBroadcastRecipients({ db, target: 'game', gameTitle: g1.title }).length;
+    const countG2 = resolveBroadcastRecipients({ db, target: 'game', gameTitle: g2.title }).length;
+    const totalContacts = resolveBroadcastRecipients({ db, target: 'all' }).length;
+
+    tgSessions.set(chatId, {
+      flow: 'broadcast',
+      step: 'choose_target',
+      g1,
+      g2,
+      countG1,
+      countG2,
+      totalContacts
+    });
+
+    const shortG1 = g1.title.length > 22 ? g1.title.slice(0, 20) + '…' : g1.title;
+    const shortG2 = g2.title.length > 22 ? g2.title.slice(0, 20) + '…' : g2.title;
 
     const text = [
-      '📢 <b>СРОЧНЫЕ РАССЫЛКИ WHATSAPP (АНТИ-СПАМ)</b>',
+      '📢 <b>РАССЫЛКА В WHATSAPP — ШАГ 1 ИЗ 3</b>',
       '',
-      'Отправляйте уведомления только целевой аудитории:',
+      '<b>Кому именно отправить сообщение?</b>',
       '',
-      '⚠️ <b>1. Перенос игры:</b>',
-      '<code>/broadcast reschedule НомерИгры, НоваяДата, НовоеВремя, Причина</code>',
-      '<i>Пример:</i> <code>/broadcast reschedule 1, 20 ноября, 19:45, Замена оборудования</code>',
+      '1️⃣ 🎯 <b>БЛИЖАЙШАЯ ИГРА:</b>',
+      `   🎬 «${escapeHtml(g1.title)}» (${escapeHtml(g1.dateStr)})`,
+      `   👥 <b>${countG1}</b> команд(ы) записано`,
+      '   <i>(Сообщение получат только капитаны этой игры)</i>',
       '',
-      '❌ <b>2. Отмена игры:</b>',
-      '<code>/broadcast cancel НомерИгры, Причина</code>',
-      '<i>Пример:</i> <code>/broadcast cancel 1, Форс-мажор на площадке</code>',
+      '2️⃣ 🗓 <b>СЛЕДУЮЩАЯ ИГРА:</b>',
+      `   🎌 «${escapeHtml(g2.title)}» (${escapeHtml(g2.dateStr)})`,
+      `   👥 <b>${countG2}</b> команд(ы) записано`,
+      '   <i>(Сообщение получат только капитаны этой игры)</i>',
       '',
-      '📢 <b>3. Срочное объявление всей базе контактов:</b>',
-      '<code>/broadcast all Текст сообщения</code>',
+      '3️⃣ 🌐 <b>ВСЯ БАЗА КОНТАКТОВ:</b>',
+      `   👥 Все подписанные капитаны (<b>${totalContacts}</b> чел.)`,
       '',
-      '👉 <b>Номера активных игр:</b>',
-      `1 = ${escapeHtml(g1)}`,
-      `2 = ${escapeHtml(g2)}`,
-      '',
-      '<i>💡 Все сообщения отправляются в очередь FIFO с задержкой 3–7 сек для защиты номера от бана. Рассылку также можно запустить прямо в веб-интерфейсе!</i>'
+      '🛡️ <i>Защита от бана: FIFO-очередь с паузой 3–7 сек + симуляция набора текста.</i>'
     ].join('\n');
 
     const replyMarkup = {
       inline_keyboard: [
         [
-          { text: '📊 Статус очереди рассылки', callback_data: 'bc_status' },
+          { text: `🎯 1. Ближайшая: ${shortG1} (${countG1} ком.)`, callback_data: 'bc_tgt_0' }
+        ],
+        [
+          { text: `🗓 2. Следующая: ${shortG2} (${countG2} ком.)`, callback_data: 'bc_tgt_1' }
+        ],
+        [
+          { text: `🌐 3. ВСЯ база контактов (${totalContacts} чел.)`, callback_data: 'bc_tgt_all' }
+        ],
+        [
+          { text: '📊 Статус очереди', callback_data: 'bc_status' },
           { text: '« В главное меню', callback_data: 'menu' }
         ]
       ]
     };
 
-    await sendMessage(chatId, text, { reply_markup: replyMarkup });
+    await editOrSendMessage(chatId, messageId, text, { reply_markup: replyMarkup });
   }
 
-  async function sendBroadcastStatus(chatId) {
+  async function chooseBroadcastType(chatId, messageId, targetCode) {
+    const session = tgSessions.get(chatId) || {};
+    const games = getActiveGames();
+    const g1 = session.g1 || games[0] || { title: 'Киномарафон: 100 вопросов', dateStr: '17 ноября' };
+    const g2 = session.g2 || games[1] || { title: 'Культовые Аниме', dateStr: '24 ноября' };
+
+    let target = 'game';
+    let gameTitle = '';
+    let gameDate = '';
+    let targetLabel = '';
+    let recipientsCount = 0;
+
+    if (targetCode === '0') {
+      target = 'game';
+      gameTitle = g1.title;
+      gameDate = g1.dateStr;
+      targetLabel = `Ближайшая игра «${g1.title}» (${g1.dateStr})`;
+      recipientsCount = resolveBroadcastRecipients({ db, target: 'game', gameTitle }).length;
+    } else if (targetCode === '1') {
+      target = 'game';
+      gameTitle = g2.title;
+      gameDate = g2.dateStr;
+      targetLabel = `Следующая игра «${g2.title}» (${g2.dateStr})`;
+      recipientsCount = resolveBroadcastRecipients({ db, target: 'game', gameTitle }).length;
+    } else {
+      target = 'all';
+      targetLabel = 'ВСЯ база контактов (все игры)';
+      recipientsCount = resolveBroadcastRecipients({ db, target: 'all' }).length;
+    }
+
+    session.flow = 'broadcast';
+    session.step = 'choose_type';
+    session.target = target;
+    session.targetCode = targetCode;
+    session.gameTitle = gameTitle;
+    session.gameDate = gameDate;
+    session.targetLabel = targetLabel;
+    session.recipientsCount = recipientsCount;
+    tgSessions.set(chatId, session);
+
+    if (recipientsCount === 0) {
+      const emptyText = [
+        '⚠️ <b>НЕТ ЗАРЕГИСТРИРОВАННЫХ КОМАНД</b>',
+        '',
+        `На выбранную игру (<b>${escapeHtml(targetLabel)}</b>) пока нет активных зарегистрированных команд.`,
+        '',
+        'Пожалуйста, выберите другую аудиторию или вернитесь в меню.'
+      ].join('\n');
+
+      const emptyMarkup = {
+        inline_keyboard: [
+          [{ text: '« Назад к выбору аудитории', callback_data: 'bc_start' }],
+          [{ text: '« В главное меню', callback_data: 'menu' }]
+        ]
+      };
+      await editOrSendMessage(chatId, messageId, emptyText, { reply_markup: emptyMarkup });
+      return;
+    }
+
+    const text = [
+      '📢 <b>РАССЫЛКА В WHATSAPP — ШАГ 2 ИЗ 3</b>',
+      '',
+      '🎯 <b>ВЫБРАННАЯ АУДИТОРИЯ:</b>',
+      `👉 <b>${escapeHtml(targetLabel)}</b>`,
+      `👥 <b>Получателей:</b> <b>${recipientsCount}</b> команд / контактов`,
+      '',
+      '<b>Выберите тему сообщения:</b>',
+      '',
+      '⚠️ <b>1. Перенос игры</b>',
+      'Изменение даты/времени. Бронь команды и столик сохраняются.',
+      '',
+      '❌ <b>2. Отмена игры</b>',
+      'Уведомление об отмене игры и полном возврате предоплаты.',
+      '',
+      '📢 <b>3. Срочное объявление</b>',
+      'Любое важное сообщение (сбор за 30 мин, схема заезда, правила).'
+    ].join('\n');
+
+    const replyMarkup = {
+      inline_keyboard: [
+        [
+          { text: '⚠️ 1. Перенос игры', callback_data: 'bc_kind_reschedule' },
+          { text: '❌ 2. Отмена игры', callback_data: 'bc_kind_cancel' }
+        ],
+        [
+          { text: '📢 3. Срочное объявление', callback_data: 'bc_kind_custom' }
+        ],
+        [
+          { text: '« Назад к выбору аудитории', callback_data: 'bc_start' }
+        ]
+      ]
+    };
+
+    await editOrSendMessage(chatId, messageId, text, { reply_markup: replyMarkup });
+  }
+
+  async function promptBroadcastContent(chatId, messageId, kind) {
+    const session = tgSessions.get(chatId);
+    if (!session) {
+      await startBroadcastWizard(chatId, messageId);
+      return;
+    }
+
+    session.type = kind;
+    session.step = 'awaiting_broadcast_text';
+    tgSessions.set(chatId, session);
+
+    const backCb = `bc_back_tgt_${session.targetCode || '0'}`;
+
+    if (kind === 'reschedule') {
+      const text = [
+        '⚠️ <b>ПЕРЕНОС ИГРЫ: ВВЕДИТЕ ДАННЫЕ</b>',
+        '',
+        `🎯 <b>Аудитория:</b> ${escapeHtml(session.targetLabel)}`,
+        `👥 <b>Получателей:</b> <b>${session.recipientsCount}</b> команд`,
+        '',
+        '👇 <b>Просто напишите сообщением новую дату и причину:</b>',
+        '<i>Например:</i>',
+        '«Переносим на среду 20 ноября в 19:30 из-за ремонта зала»',
+        '',
+        '⚡ <b>Или выберите один из готовых вариантов в 1 клик:</b>'
+      ].join('\n');
+
+      const replyMarkup = {
+        inline_keyboard: [
+          [{ text: '📅 На ср 20.11 в 19:30 (Тех. работы)', callback_data: 'bc_p_resched_1' }],
+          [{ text: '📅 На чт 21.11 в 19:30 (Замена мультимедиа)', callback_data: 'bc_p_resched_2' }],
+          [{ text: '📅 На сл. неделю (дата уточняется)', callback_data: 'bc_p_resched_3' }],
+          [{ text: '« Назад к выбору темы', callback_data: backCb }]
+        ]
+      };
+      await editOrSendMessage(chatId, messageId, text, { reply_markup: replyMarkup });
+      return;
+    }
+
+    if (kind === 'cancel') {
+      const text = [
+        '❌ <b>ОТМЕНА ИГРЫ: УКАЖИТЕ ПРИЧИНУ</b>',
+        '',
+        `🎯 <b>Аудитория:</b> ${escapeHtml(session.targetLabel)}`,
+        `👥 <b>Получателей:</b> <b>${session.recipientsCount}</b> команд`,
+        '',
+        '👇 <b>Напишите причину отмены в ответном сообщении:</b>',
+        '<i>Например:</i> «По форс-мажорным обстоятельствам площадки»',
+        '',
+        '⚡ <b>Или выберите готовый вариант в 1 клик:</b>'
+      ].join('\n');
+
+      const replyMarkup = {
+        inline_keyboard: [
+          [{ text: '⚠️ Форс-мажор на площадке', callback_data: 'bc_p_cancel_1' }],
+          [{ text: '❄️ Буран / Погодные условия', callback_data: 'bc_p_cancel_2' }],
+          [{ text: '🔧 Технические неполадки в баре', callback_data: 'bc_p_cancel_3' }],
+          [{ text: '« Назад к выбору темы', callback_data: backCb }]
+        ]
+      };
+      await editOrSendMessage(chatId, messageId, text, { reply_markup: replyMarkup });
+      return;
+    }
+
+    // kind === 'custom'
+    const text = [
+      '📢 <b>СРОЧНОЕ ОБЪЯВЛЕНИЕ / НАПОМИНАНИЕ</b>',
+      '',
+      `🎯 <b>Аудитория:</b> ${escapeHtml(session.targetLabel)}`,
+      `👥 <b>Получателей:</b> <b>${session.recipientsCount}</b> чел.`,
+      '',
+      '👇 <b>Напишите текст сообщения прямо в этот чат:</b>',
+      '',
+      '⚡ <b>Или нажмите готовое напоминание в 1 клик:</b>'
+    ].join('\n');
+
+    const replyMarkup = {
+      inline_keyboard: [
+        [{ text: '⏰ Сбор за 30 мин до старта (в 19:00)', callback_data: 'bc_p_custom_1' }],
+        [{ text: '📍 Напоминание: Караоке «То Место», 2 этаж', callback_data: 'bc_p_custom_2' }],
+        [{ text: '🚗 Парковка за зданием бара (ул. Комиссарова)', callback_data: 'bc_p_custom_3' }],
+        [{ text: '« Назад к выбору темы', callback_data: backCb }]
+      ]
+    };
+    await editOrSendMessage(chatId, messageId, text, { reply_markup: replyMarkup });
+  }
+
+  async function handlePresetContent(chatId, messageId, presetKey) {
+    const session = tgSessions.get(chatId);
+    if (!session) {
+      await startBroadcastWizard(chatId, messageId);
+      return;
+    }
+
+    if (presetKey === 'bc_p_resched_1') {
+      session.newDate = '20 ноября (среда)';
+      session.newTime = '19:30';
+      session.reason = 'Технические работы в зале';
+    } else if (presetKey === 'bc_p_resched_2') {
+      session.newDate = '21 ноября (четверг)';
+      session.newTime = '19:30';
+      session.reason = 'Замена мультимедиа оборудования';
+    } else if (presetKey === 'bc_p_resched_3') {
+      session.newDate = 'следующая неделя (будет сообщена дополнительно)';
+      session.newTime = '19:30';
+      session.reason = 'Форс-мажор на площадке проведения';
+    } else if (presetKey === 'bc_p_cancel_1') {
+      session.reason = 'Форс-мажорные обстоятельства на площадке проведения';
+    } else if (presetKey === 'bc_p_cancel_2') {
+      session.reason = 'Штормовое предупреждение и неблагоприятные погодные условия';
+    } else if (presetKey === 'bc_p_cancel_3') {
+      session.reason = 'Технические неполадки электросети в караоке-баре';
+    } else if (presetKey === 'bc_p_custom_1') {
+      session.customText = 'Напоминаем, что сбор команд начинается за 30 минут до старта (в 19:00)! Ждём вас к разминке в караоке-баре «То Место».';
+    } else if (presetKey === 'bc_p_custom_2') {
+      session.customText = 'Ждём всех сегодня на 2-м этаже караоке-бара «То Место» (пр. Нуркена Абдирова, 5). Ваш столик уже подготовлен!';
+    } else if (presetKey === 'bc_p_custom_3') {
+      session.customText = 'Обратите внимание: бесплатная парковка для участников доступна прямо за зданием бара (въезд с ул. Комиссарова).';
+    }
+
+    tgSessions.set(chatId, session);
+    await showBroadcastPreview(chatId, messageId);
+  }
+
+  async function showBroadcastPreview(chatId, messageId = null) {
+    const session = tgSessions.get(chatId);
+    if (!session) {
+      await startBroadcastWizard(chatId, messageId);
+      return;
+    }
+
+    session.step = 'confirm_broadcast';
+    tgSessions.set(chatId, session);
+
+    const { template, defaultParams } = prepareBroadcastTemplate({
+      type: session.type,
+      customText: session.customText || '',
+      newDate: session.newDate || '',
+      newTime: session.newTime || '19:30',
+      reason: session.reason || ''
+    });
+
+    session.preparedTemplate = template;
+    session.preparedParams = defaultParams;
+
+    const sampleText = personalizeMessage(template, {
+      captain: 'Алексей',
+      team: 'ДНК',
+      game: session.gameTitle || 'Киномарафон: 100 вопросов',
+      date: session.gameDate || '17 ноября',
+      players: '6',
+      ...defaultParams
+    });
+
+    const text = [
+      '👁️ <b>ПРЕДВАРИТЕЛЬНЫЙ ПРОСМОТР РАССЫЛКИ (ШАГ 3 ИЗ 3)</b>',
+      '',
+      `🎯 <b>Кому отправляем:</b>`,
+      `👉 <b>${escapeHtml(session.targetLabel)}</b>`,
+      `👥 <b>Всего получателей:</b> <b>${session.recipientsCount}</b> команд / капитанов`,
+      '🛡️ <b>Защита WhatsApp:</b> Пауза 3–7 сек + симуляция набора текста',
+      '',
+      '📝 <b>Текст, который получит каждый капитан:</b>',
+      '──────────────────────',
+      `<pre>${escapeHtml(sampleText)}</pre>`,
+      '──────────────────────',
+      '<i>(Имя капитана и название команды подставляются индивидуально для каждого получателя)</i>',
+      '',
+      '🚀 <b>Запустить эту рассылку в WhatsApp?</b>'
+    ].join('\n');
+
+    const replyMarkup = {
+      inline_keyboard: [
+        [
+          { text: `🚀 ДА, ОТПРАВИТЬ (${session.recipientsCount} ком.)`, callback_data: 'bc_send_confirmed' }
+        ],
+        [
+          { text: '✏️ Ввести другой текст', callback_data: 'bc_reenter' },
+          { text: '❌ Отменить рассылку', callback_data: 'bc_cancel' }
+        ]
+      ]
+    };
+
+    await editOrSendMessage(chatId, messageId, text, { reply_markup: replyMarkup });
+  }
+
+  async function executeAndReportBroadcast(chatId, messageId) {
+    const session = tgSessions.get(chatId);
+    if (!session) {
+      await sendMessage(chatId, '⚠️ Время ожидания истекло. Пожалуйста, запустите рассылку заново.');
+      await sendMainMenu(chatId);
+      return;
+    }
+
+    await editOrSendMessage(chatId, messageId, '⏳ <b>Ставлю сообщения в очередь WhatsApp...</b>');
+
+    try {
+      const res = await executeManualBroadcast({
+        db,
+        broadcaster,
+        type: session.type,
+        target: session.target,
+        gameTitle: session.gameTitle,
+        gameDate: session.gameDate,
+        customText: session.customText,
+        newDate: session.newDate,
+        newTime: session.newTime,
+        reason: session.reason,
+        overrideTemplate: session.overrideTemplate || null,
+        telegramAlertFn: (payload) => sendBroadcastLaunchAlert(payload)
+      });
+
+      const targetLabel = session.targetLabel;
+      tgSessions.delete(chatId);
+
+      const successText = [
+        '✅ <b>РАССЫЛКА УСПЕШНО ЗАПУЩЕНА!</b>',
+        '',
+        `🎯 <b>Аудитория:</b> ${escapeHtml(targetLabel)}`,
+        `👥 <b>Добавлено в очередь:</b> <b>${res.queuedCount}</b> команд(ы)`,
+        `🆔 <b>ID пакета:</b> <code>${res.batchId}</code>`,
+        '',
+        '<i>Сообщения отправляются в WhatsApp по очереди FIFO с задержкой 3–7 секунд для защиты номера от бана.</i>'
+      ].join('\n');
+
+      const replyMarkup = {
+        inline_keyboard: [
+          [{ text: '📊 Статус очереди', callback_data: 'bc_status' }],
+          [{ text: '« В главное меню', callback_data: 'menu' }]
+        ]
+      };
+
+      await editOrSendMessage(chatId, messageId, successText, { reply_markup: replyMarkup });
+    } catch (err) {
+      logger.error({ err }, 'Error in executeAndReportBroadcast');
+      tgSessions.delete(chatId);
+      await editOrSendMessage(chatId, messageId, `❌ <b>Ошибка запуска рассылки:</b> ${escapeHtml(err.message)}`, {
+        reply_markup: {
+          inline_keyboard: [[{ text: '« В главное меню', callback_data: 'menu' }]]
+        }
+      });
+    }
+  }
+
+  // --- INTERACTIVE ADD BOOKING WIZARD ---
+
+  async function startAddBookingWizard(chatId, messageId = null) {
+    const games = getActiveGames();
+    const g1 = games[0] || { title: 'Киномарафон: 100 вопросов', dateStr: '17 ноября' };
+    const g2 = games[1] || { title: 'Культовые Аниме', dateStr: '24 ноября' };
+
+    tgSessions.set(chatId, {
+      flow: 'add_booking',
+      step: 'choose_game',
+      g1,
+      g2
+    });
+
+    const text = [
+      '➕ <b>РЕГИСТРАЦИЯ КОМАНДЫ (ШАГ 1 ИЗ 2)</b>',
+      '',
+      '<b>На какую игру регистрируем команду?</b>',
+      '',
+      `1️⃣ 🎬 <b>«${escapeHtml(g1.title)}»</b> (${escapeHtml(g1.dateStr)})`,
+      `2️⃣ 🎌 <b>«${escapeHtml(g2.title)}»</b> (${escapeHtml(g2.dateStr)})`
+    ].join('\n');
+
+    const shortG1 = g1.title.length > 22 ? g1.title.slice(0, 20) + '…' : g1.title;
+    const shortG2 = g2.title.length > 22 ? g2.title.slice(0, 20) + '…' : g2.title;
+
+    const replyMarkup = {
+      inline_keyboard: [
+        [
+          { text: `🎬 1. ${shortG1} (${g1.dateStr})`, callback_data: 'add_g_0' }
+        ],
+        [
+          { text: `🎌 2. ${shortG2} (${g2.dateStr})`, callback_data: 'add_g_1' }
+        ],
+        [
+          { text: '« В главное меню', callback_data: 'menu' }
+        ]
+      ]
+    };
+
+    await editOrSendMessage(chatId, messageId, text, { reply_markup: replyMarkup });
+  }
+
+  async function handleSelectBookingGame(chatId, messageId, gameIdx) {
+    const session = tgSessions.get(chatId) || {};
+    const games = getActiveGames();
+    const chosenGame = (gameIdx === '1' && games[1]) ? games[1] : (games[0] || { title: 'Киномарафон: 100 вопросов', dateStr: '17 ноября' });
+
+    session.flow = 'add_booking';
+    session.step = 'awaiting_booking_info';
+    session.chosenGame = chosenGame;
+    tgSessions.set(chatId, session);
+
+    const text = [
+      '➕ <b>РЕГИСТРАЦИЯ КОМАНДЫ (ШАГ 2 ИЗ 2)</b>',
+      '',
+      `🎬 <b>Игра:</b> «${escapeHtml(chosenGame.title)}» (${escapeHtml(chosenGame.dateStr)})`,
+      '',
+      '👇 <b>Просто напишите данные команды в ответном сообщении:</b>',
+      '',
+      '<i>Пример (скопируйте и измените под себя):</i>',
+      '<code>Гарри Поттер, Гермиона, +7 701 555 44 33, 6 игроков, Столик у сцены</code>',
+      '',
+      '<i>(Или просто: «Название команды, Телефон, Имя капитана»)</i>'
+    ].join('\n');
+
+    const replyMarkup = {
+      inline_keyboard: [
+        [{ text: '« Изменить игру', callback_data: 'add_start' }],
+        [{ text: '« Отмена', callback_data: 'menu' }]
+      ]
+    };
+
+    await editOrSendMessage(chatId, messageId, text, { reply_markup: replyMarkup });
+  }
+
+  async function handleIncomingInteractiveText(chatId, text) {
+    const session = tgSessions.get(chatId);
+    if (!session) return false;
+
+    const lower = text.toLowerCase().trim();
+    if (lower === 'отмена' || lower === 'назад' || lower === '/cancel') {
+      tgSessions.delete(chatId);
+      await sendMessage(chatId, 'Действие отменено.');
+      await sendMainMenu(chatId);
+      return true;
+    }
+
+    if (session.flow === 'broadcast' && session.step === 'awaiting_broadcast_text') {
+      if (session.type === 'reschedule') {
+        session.reason = text;
+        session.newDate = 'согласно сообщению';
+      } else if (session.type === 'cancel') {
+        session.reason = text;
+      } else {
+        session.customText = text;
+      }
+      tgSessions.set(chatId, session);
+      await showBroadcastPreview(chatId, null);
+      return true;
+    }
+
+    if (session.flow === 'add_booking' && session.step === 'awaiting_booking_info') {
+      const parts = text.split(',').map(s => s.trim());
+      const teamName = parts[0] || 'Команда';
+      let captainName = parts[1] || 'Капитан';
+      let phone = '';
+      let playersCount = 6;
+      let notes = '';
+
+      for (let i = 1; i < parts.length; i++) {
+        const p = parts[i];
+        if (/[+0-9]{7,}/.test(p.replace(/\D/g, ''))) {
+          phone = p;
+        } else if (/\d+/.test(p) && p.length <= 2) {
+          playersCount = parseInt(p, 10) || 6;
+        } else if (i === 1) {
+          captainName = p;
+        } else {
+          notes = notes ? `${notes}, ${p}` : p;
+        }
+      }
+
+      if (!phone) {
+        phone = '+77000000000';
+      }
+
+      const game = session.chosenGame || { title: 'Киномарафон: 100 вопросов', dateStr: '17 ноября' };
+
+      try {
+        const booking = db.bookings.create({
+          teamName,
+          captainName,
+          captainPhone: phone,
+          playersCount,
+          gameTitle: game.title,
+          gameDate: game.dateStr,
+          source: 'telegram_wizard',
+          status: 'confirmed',
+          notes
+        });
+
+        tgSessions.delete(chatId);
+
+        try {
+          await sendBookingAlert(booking);
+        } catch (e) {}
+
+        const successText = [
+          '✅ <b>КОМАНДА УСПЕШНО ЗАРЕГИСТРИРОВАНА!</b>',
+          '',
+          `👥 <b>Команда:</b> «${escapeHtml(booking.team_name)}»`,
+          `👤 <b>Капитан:</b> ${escapeHtml(booking.captain_name)} (📱 ${escapeHtml(booking.captain_phone)})`,
+          `🔢 <b>Игроков:</b> ${booking.players_count} чел.`,
+          `🎬 <b>Игра:</b> ${escapeHtml(booking.game_title)} (${escapeHtml(booking.game_date)})`,
+          notes ? `📝 <b>Примечание:</b> <i>${escapeHtml(notes)}</i>` : '',
+          '',
+          '<i>Бронь внесена в базу данных и доступна в Excel и на веб-панели!</i>'
+        ].filter(Boolean).join('\n');
+
+        await sendMessage(chatId, successText, {
+          reply_markup: {
+            inline_keyboard: [
+              [{ text: '📋 Список броней', callback_data: 'bookings' }],
+              [{ text: '« В главное меню', callback_data: 'menu' }]
+            ]
+          }
+        });
+        return true;
+      } catch (err) {
+        await sendMessage(chatId, `❌ Ошибка регистрации: ${escapeHtml(err.message)}`);
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  async function sendBroadcastStatus(chatId, messageId = null) {
     if (!broadcaster || typeof broadcaster.getStatus !== 'function') {
-      await sendMessage(chatId, 'ℹ️ Сервис рассылки еще инициализируется или временно недоступен.');
+      await editOrSendMessage(chatId, messageId, 'ℹ️ Сервис рассылки еще инициализируется или временно недоступен.');
       return;
     }
 
@@ -393,17 +1019,20 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames, b
       inline_keyboard: [
         [
           { text: '🔄 Обновить статус', callback_data: 'bc_status' },
-          { text: '📢 Меню рассылки', callback_data: 'bc_menu' }
+          { text: '📢 Запустить рассылку', callback_data: 'bc_start' }
+        ],
+        [
+          { text: '« В главное меню', callback_data: 'menu' }
         ]
       ]
     };
 
-    await sendMessage(chatId, text, { reply_markup: replyMarkup });
+    await editOrSendMessage(chatId, messageId, text, { reply_markup: replyMarkup });
   }
 
   async function handleBroadcastCommand(chatId, argsStr) {
     if (!argsStr || !argsStr.trim()) {
-      await sendBroadcastMenu(chatId);
+      await startBroadcastWizard(chatId);
       return;
     }
 
@@ -416,185 +1045,31 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames, b
       return;
     }
 
-    const games = getActiveGames();
-
-    if (subCmd === 'cancel' || subCmd === 'отмена') {
-      const csvParts = rest.split(',').map(s => s.trim());
-      if (csvParts.length < 1 || !csvParts[0]) {
-        await sendMessage(chatId, '⚠️ Укажите номер игры и причину:\n<code>/broadcast cancel НомерИгры, Причина</code>');
-        return;
-      }
-
-      const gameChoice = csvParts[0];
-      const reason = csvParts.slice(1).join(', ') || 'Форс-мажорные обстоятельства';
-      let chosenGame = games[0];
-      if (gameChoice === '2' && games[1]) chosenGame = games[1];
-      else if (gameChoice.length > 2) {
-        const found = games.find(g => g.title.toLowerCase().includes(gameChoice.toLowerCase()));
-        if (found) chosenGame = found;
-      }
-
-      if (!chosenGame) {
-        await sendMessage(chatId, '❌ Игра не найдена в расписании.');
-        return;
-      }
-
-      await sendMessage(chatId, `⏳ Формирую рассылку об отмене игры «${escapeHtml(chosenGame.title)}»...`);
-
-      try {
-        const res = await executeManualBroadcast({
-          db,
-          broadcaster,
-          type: 'cancel',
-          target: 'game',
-          gameTitle: chosenGame.title,
-          gameDate: chosenGame.dateStr,
-          reason,
-          telegramAlertFn: (payload) => sendBroadcastLaunchAlert(payload)
-        });
-
-        if (res.queuedCount === 0) {
-          await sendMessage(chatId, `ℹ️ На игру «${escapeHtml(chosenGame.title)}» нет активных зарегистрированных команд.`);
-        } else {
-          await sendMessage(chatId, `✅ <b>Рассылка об отмене запущена!</b>\n👥 Получателей: <b>${res.queuedCount}</b> команд\n🆔 ID: <code>${res.batchId}</code>`);
-        }
-      } catch (err) {
-        logger.error({ err }, 'Broadcast cancel error');
-        await sendMessage(chatId, `❌ Ошибка запуска рассылки: ${escapeHtml(err.message)}`);
-      }
-      return;
-    }
-
-    if (subCmd === 'reschedule' || subCmd === 'перенос') {
-      const csvParts = rest.split(',').map(s => s.trim());
-      if (csvParts.length < 2) {
-        await sendMessage(chatId, '⚠️ Укажите параметры переноса:\n<code>/broadcast reschedule НомерИгры, НоваяДата, [НовоеВремя], [Причина]</code>');
-        return;
-      }
-
-      const gameChoice = csvParts[0];
-      const newDate = csvParts[1];
-      const newTime = csvParts[2] && csvParts[2].includes(':') ? csvParts[2] : '19:30';
-      const reason = (csvParts[2] && !csvParts[2].includes(':') ? csvParts.slice(2).join(', ') : csvParts.slice(3).join(', ')) || '';
-
-      let chosenGame = games[0];
-      if (gameChoice === '2' && games[1]) chosenGame = games[1];
-      else if (gameChoice.length > 2) {
-        const found = games.find(g => g.title.toLowerCase().includes(gameChoice.toLowerCase()));
-        if (found) chosenGame = found;
-      }
-
-      if (!chosenGame) {
-        await sendMessage(chatId, '❌ Игра не найдена в расписании.');
-        return;
-      }
-
-      await sendMessage(chatId, `⏳ Формирую рассылку о переносе игры «${escapeHtml(chosenGame.title)}» на ${escapeHtml(newDate)}...`);
-
-      try {
-        const res = await executeManualBroadcast({
-          db,
-          broadcaster,
-          type: 'reschedule',
-          target: 'game',
-          gameTitle: chosenGame.title,
-          gameDate: chosenGame.dateStr,
-          newDate,
-          newTime,
-          reason,
-          telegramAlertFn: (payload) => sendBroadcastLaunchAlert(payload)
-        });
-
-        if (res.queuedCount === 0) {
-          await sendMessage(chatId, `ℹ️ На игру «${escapeHtml(chosenGame.title)}» нет активных зарегистрированных команд.`);
-        } else {
-          await sendMessage(chatId, `✅ <b>Рассылка о переносе запущена!</b>\n👥 Получателей: <b>${res.queuedCount}</b> команд\n📅 Новая дата: ${escapeHtml(newDate)} (${escapeHtml(newTime)})\n🆔 ID: <code>${res.batchId}</code>`);
-        }
-      } catch (err) {
-        logger.error({ err }, 'Broadcast reschedule error');
-        await sendMessage(chatId, `❌ Ошибка запуска рассылки: ${escapeHtml(err.message)}`);
-      }
-      return;
-    }
-
-    if (subCmd === 'all' || subCmd === 'все') {
-      if (!rest) {
-        await sendMessage(chatId, '⚠️ Укажите текст объявления:\n<code>/broadcast all Текст вашего сообщения</code>');
-        return;
-      }
-
-      await sendMessage(chatId, `⏳ Формирую рассылку по всей базе контактов...`);
-
-      try {
-        const res = await executeManualBroadcast({
-          db,
-          broadcaster,
-          type: 'custom',
-          target: 'all',
-          customText: rest,
-          telegramAlertFn: (payload) => sendBroadcastLaunchAlert(payload)
-        });
-
-        if (res.queuedCount === 0) {
-          await sendMessage(chatId, `ℹ️ В базе нет подписанных контактов.`);
-        } else {
-          await sendMessage(chatId, `✅ <b>Срочное объявление отправлено в очередь!</b>\n👥 Получателей: <b>${res.queuedCount}</b> чел.\n🆔 ID: <code>${res.batchId}</code>`);
-        }
-      } catch (err) {
-        logger.error({ err }, 'Broadcast all error');
-        await sendMessage(chatId, `❌ Ошибка: ${escapeHtml(err.message)}`);
-      }
-      return;
-    }
-
-    await sendBroadcastMenu(chatId);
+    await startBroadcastWizard(chatId);
   }
 
   async function handleAddCommand(chatId, argsStr) {
-    const games = getActiveGames();
     if (!argsStr || !argsStr.trim()) {
-      const g1 = games[0] ? games[0].title : 'Киномарафон: 100 вопросов';
-      const g2 = games[1] ? games[1].title : 'Культовые Аниме';
-
-      const helpText = [
-        '➕ <b>БЫСТРОЕ ДОБАВЛЕНИЕ БРОНИ ВРУЧНУЮ</b>',
-        '',
-        'Чтобы записать команду, отправьте сообщение в формате (через запятую):',
-        '<code>/add Команда, Капитан, Телефон, Игроков, Номер игры, Примечание</code>',
-        '',
-        '👉 <b>Номера активных игр:</b>',
-        `1 = ${escapeHtml(g1)} (17 ноября)`,
-        `2 = ${escapeHtml(g2)} (24 ноября)`,
-        '',
-        '💡 <b>Пример (скопируйте и измените):</b>',
-        '<code>/add Гарри Поттер, Гермиона, +77015554433, 6, 1, Столик у сцены</code>'
-      ].join('\n');
-
-      await sendMessage(chatId, helpText);
+      await startAddBookingWizard(chatId);
       return;
     }
 
-    // Parse comma-separated arguments
     const parts = argsStr.split(',').map(s => s.trim());
-    if (parts.length < 4) {
-      await sendMessage(chatId, '⚠️ <b>Недостаточно данных.</b>\nФормат: <code>/add Команда, Капитан, Телефон, Игроков, [Игра 1/2], [Примечание]</code>');
+    if (parts.length < 2) {
+      await startAddBookingWizard(chatId);
       return;
     }
 
     const teamName = parts[0];
-    const captainName = parts[1];
-    const captainPhone = parts[2];
+    const captainName = parts[1] || 'Капитан';
+    const captainPhone = parts[2] || '+77000000000';
     const playersCount = parseInt(parts[3], 10) || 6;
     const gameChoice = parts[4] || '1';
     const notes = parts.slice(5).join(', ') || '';
 
+    const games = getActiveGames();
     let chosenGame = games[0] || { title: 'Киномарафон: 100 вопросов', dateStr: '17 ноября' };
-    if (gameChoice === '2' && games[1]) {
-      chosenGame = games[1];
-    } else if (gameChoice.length > 2) {
-      const match = games.find(g => g.title.toLowerCase().includes(gameChoice.toLowerCase()));
-      if (match) chosenGame = match;
-    }
+    if (gameChoice === '2' && games[1]) chosenGame = games[1];
 
     try {
       const booking = db.bookings.create({
@@ -623,8 +1098,7 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames, b
 
       await sendMessage(chatId, successText);
     } catch (err) {
-      logger.error({ err: err.message }, 'Failed to add manual booking');
-      await sendMessage(chatId, `❌ Ошибка при создании брони: ${escapeHtml(err.message)}`);
+      await sendMessage(chatId, `❌ Ошибка: ${escapeHtml(err.message)}`);
     }
   }
 
@@ -647,7 +1121,7 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames, b
 
   async function handleUpdate(update) {
     try {
-      // 1. Handle incoming text commands
+      // 1. Handle incoming text commands & reply keyboard taps
       if (update.message && update.message.text) {
         const msg = update.message;
         const chatId = String(msg.chat.id);
@@ -663,7 +1137,61 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames, b
           return;
         }
 
-        if (firstWord === '/start' || firstWord === '/admin' || firstWord === '/menu' || firstWord === 'панель' || firstWord === 'меню') {
+        const lowerText = text.toLowerCase();
+
+        // 1a. Persistent Reply Keyboard button routing
+        if (text === '📊 Статистика' || lowerText === '📊 статистика') {
+          tgSessions.delete(chatId);
+          await sendStats(chatId);
+          return;
+        }
+        if (text === '📋 Список броней' || lowerText === '📋 список броней') {
+          tgSessions.delete(chatId);
+          await sendBookingsList(chatId);
+          return;
+        }
+        if (text === '📢 Срочная рассылка' || lowerText === '📢 срочная рассылка') {
+          tgSessions.delete(chatId);
+          await startBroadcastWizard(chatId);
+          return;
+        }
+        if (text === '➕ Добавить бронь' || lowerText === '➕ добавить бронь') {
+          tgSessions.delete(chatId);
+          await startAddBookingWizard(chatId);
+          return;
+        }
+        if (text === '📜 Архив игр' || lowerText === '📜 архив игр') {
+          tgSessions.delete(chatId);
+          await sendGamesArchive(chatId);
+          return;
+        }
+        if (text === '📥 Скачать Excel' || lowerText === '📥 скачать excel') {
+          tgSessions.delete(chatId);
+          await sendExcelDocument(chatId);
+          return;
+        }
+
+        // 1b. Global cancel keywords
+        if (lowerText === 'отмена' || lowerText === 'назад' || lowerText === '/cancel') {
+          tgSessions.delete(chatId);
+          await sendMessage(chatId, 'Действие отменено.');
+          await sendMainMenu(chatId);
+          return;
+        }
+
+        // 1c. Interactive multi-step wizard input (broadcasting or manual booking)
+        if (tgSessions.has(chatId) && !text.startsWith('/')) {
+          const handled = await handleIncomingInteractiveText(chatId, text);
+          if (handled) return;
+        }
+
+        // 1d. Traditional slash commands
+        if (firstWord === '/start') {
+          await sendMessage(chatId, '🎬 Добро пожаловать в панель управления ACTION Киноквиз!', {
+            reply_markup: MAIN_REPLY_KEYBOARD
+          });
+          await sendMainMenu(chatId);
+        } else if (firstWord === '/admin' || firstWord === '/menu' || firstWord === 'панель' || firstWord === 'меню') {
           await sendMainMenu(chatId);
         } else if (firstWord === '/excel' || firstWord === '/xlsx') {
           await sendExcelDocument(chatId);
@@ -686,6 +1214,7 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames, b
       if (update.callback_query) {
         const cq = update.callback_query;
         const chatId = String(cq.message?.chat?.id);
+        const messageId = cq.message?.message_id;
         const data = cq.data;
 
         await answerCallbackQuery(cq.id);
@@ -702,16 +1231,45 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames, b
           await sendBookingsList(chatId, 'Аниме');
         } else if (data === 'excel') {
           await sendExcelDocument(chatId);
-        } else if (data === 'help_add') {
-          await handleAddCommand(chatId, '');
-        } else if (data === 'bc_menu') {
-          await sendBroadcastMenu(chatId);
-        } else if (data === 'bc_status') {
-          await sendBroadcastStatus(chatId);
         } else if (data === 'menu') {
-          await sendMainMenu(chatId);
+          await sendMainMenu(chatId, messageId);
         } else if (data === 'sync') {
           await handleSync(chatId);
+        } else if (data === 'add_start' || data === 'help_add') {
+          await startAddBookingWizard(chatId, messageId);
+        } else if (data === 'add_g_0') {
+          await handleSelectBookingGame(chatId, messageId, '0');
+        } else if (data === 'add_g_1') {
+          await handleSelectBookingGame(chatId, messageId, '1');
+        } else if (data === 'bc_start' || data === 'bc_menu') {
+          await startBroadcastWizard(chatId, messageId);
+        } else if (data === 'bc_tgt_0') {
+          await chooseBroadcastType(chatId, messageId, '0');
+        } else if (data === 'bc_tgt_1') {
+          await chooseBroadcastType(chatId, messageId, '1');
+        } else if (data === 'bc_tgt_all') {
+          await chooseBroadcastType(chatId, messageId, 'all');
+        } else if (data === 'bc_kind_reschedule') {
+          await promptBroadcastContent(chatId, messageId, 'reschedule');
+        } else if (data === 'bc_kind_cancel') {
+          await promptBroadcastContent(chatId, messageId, 'cancel');
+        } else if (data === 'bc_kind_custom') {
+          await promptBroadcastContent(chatId, messageId, 'custom');
+        } else if (data.startsWith('bc_p_')) {
+          await handlePresetContent(chatId, messageId, data);
+        } else if (data === 'bc_send_confirmed') {
+          await executeAndReportBroadcast(chatId, messageId);
+        } else if (data === 'bc_reenter') {
+          const session = tgSessions.get(chatId);
+          await promptBroadcastContent(chatId, messageId, session?.type || 'custom');
+        } else if (data === 'bc_cancel') {
+          tgSessions.delete(chatId);
+          await sendMainMenu(chatId, messageId);
+        } else if (data.startsWith('bc_back_tgt_')) {
+          const tgt = data.replace('bc_back_tgt_', '');
+          await chooseBroadcastType(chatId, messageId, tgt);
+        } else if (data === 'bc_status') {
+          await sendBroadcastStatus(chatId, messageId);
         }
       }
     } catch (err) {
