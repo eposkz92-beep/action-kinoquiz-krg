@@ -330,6 +330,11 @@ export function initDatabase(dbPath = ':memory:') {
       }
       const sql = `SELECT * FROM bookings WHERE ${conditions.join(' AND ')} ORDER BY created_at DESC LIMIT ?;`;
       return db.prepare(sql).all(...params, lim);
+    },
+    delete(id) {
+      if (!id) return false;
+      const res = db.prepare('DELETE FROM bookings WHERE id = ?;').run(Number(id));
+      return (res && res.changes > 0) || false;
     }
   };
 

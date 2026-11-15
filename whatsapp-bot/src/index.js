@@ -104,24 +104,27 @@ function renderWebDashboard(qrDataUrl) {
 
     const statusBadge = b.status === 'cancelled'
       ? '<span class="badge badge-red">Отменена</span>'
-      : '<span class="badge badge-emerald">Подтверждена</span>';
+      : '<span class="badge badge-emerald">✅ Подтверждена</span>';
 
     return `
-      <tr>
-        <td class="cell-center text-muted">${b.id || (i + 1)}</td>
+      <tr id="booking-row-${b.id}">
+        <td class="cell-center text-muted"><b>${b.id || (i + 1)}</b></td>
         <td class="cell-date">${escapeHtml(b.created_at || '')}</td>
-        <td class="cell-team"><strong>${escapeHtml(b.team_name)}</strong></td>
-        <td class="cell-center"><span class="players-pill">👥 ${players}</span></td>
-        <td>${escapeHtml(b.captain_name)}</td>
+        <td class="cell-team"><span class="team-name">${escapeHtml(b.team_name)}</span></td>
+        <td class="cell-center"><span class="players-pill">👥 ${players} чел.</span></td>
+        <td class="cell-captain">${escapeHtml(b.captain_name)}</td>
         <td class="cell-phone">
-          <span>${escapeHtml(rawPhone)}</span>
-          ${digits ? `<a href="${waUrl}" target="_blank" class="wa-btn" title="Написать капитану в WhatsApp">💬</a>` : ''}
+          <span class="phone-num">${escapeHtml(rawPhone)}</span>
+          ${digits ? `<a href="${waUrl}" target="_blank" class="wa-btn" title="Написать капитану в WhatsApp">💬 WhatsApp</a>` : ''}
         </td>
         <td class="cell-game">${escapeHtml(b.game_title)}</td>
-        <td class="cell-date">${escapeHtml(b.game_date)}</td>
+        <td class="cell-date"><b>${escapeHtml(b.game_date)}</b></td>
         <td class="cell-sum">${sum.toLocaleString('ru-RU')} ₸</td>
         <td class="cell-center">${sourceBadge}</td>
         <td class="cell-center">${statusBadge}</td>
+        <td class="cell-center">
+          <button onclick="deleteBooking(${b.id}, '${escapeHtml(b.team_name)}')" class="del-btn" title="Удалить бронь">🗑️</button>
+        </td>
       </tr>
     `;
   }).join('\n');
@@ -146,6 +149,8 @@ function renderWebDashboard(qrDataUrl) {
       --error: #ef4444;
       --excel: #107c41;
       --excel-hover: #0b5c30;
+      --csv: #2563eb;
+      --csv-hover: #1d4ed8;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif; }
     body {
@@ -158,7 +163,7 @@ function renderWebDashboard(qrDataUrl) {
       align-items: center;
     }
     .wrapper {
-      max-width: 1200px;
+      max-width: 1240px;
       width: 100%;
       display: flex;
       flex-direction: column;
@@ -176,13 +181,13 @@ function renderWebDashboard(qrDataUrl) {
       gap: 16px;
     }
     .logo-title {
-      font-size: 24px;
+      font-size: 26px;
       font-weight: 800;
       color: var(--accent);
       letter-spacing: 0.5px;
     }
     .logo-sub {
-      font-size: 13px;
+      font-size: 13.5px;
       color: var(--muted);
       margin-top: 3px;
     }
@@ -190,20 +195,20 @@ function renderWebDashboard(qrDataUrl) {
       display: inline-flex;
       align-items: center;
       gap: 8px;
-      padding: 8px 16px;
+      padding: 8px 18px;
       border-radius: 9999px;
-      font-size: 13px;
-      font-weight: 600;
+      font-size: 13.5px;
+      font-weight: 700;
     }
     .status-connected {
       background: rgba(16, 185, 129, 0.15);
       color: var(--success);
-      border: 1px solid rgba(16, 185, 129, 0.3);
+      border: 1px solid rgba(16, 185, 129, 0.4);
     }
     .status-waiting {
       background: rgba(245, 158, 11, 0.15);
       color: var(--accent);
-      border: 1px solid rgba(245, 158, 11, 0.3);
+      border: 1px solid rgba(245, 158, 11, 0.4);
     }
     .metrics-grid {
       display: grid;
@@ -214,79 +219,159 @@ function renderWebDashboard(qrDataUrl) {
       background: var(--card-bg);
       border: 1px solid var(--card-border);
       border-radius: 14px;
-      padding: 16px 20px;
+      padding: 18px 20px;
       display: flex;
       align-items: center;
       gap: 16px;
     }
     .metric-icon {
-      font-size: 30px;
+      font-size: 32px;
       background: rgba(255,255,255,0.03);
       padding: 10px;
       border-radius: 12px;
       border: 1px solid var(--border);
     }
     .metric-val {
-      font-size: 22px;
+      font-size: 24px;
       font-weight: 800;
       color: var(--text);
     }
     .metric-lbl {
-      font-size: 12px;
+      font-size: 12.5px;
       color: var(--muted);
-      margin-top: 2px;
+      margin-top: 3px;
     }
-    .qr-card {
+    .qr-card-compact {
       background: var(--card-bg);
       border: 1px solid var(--accent);
       border-radius: 16px;
-      padding: 24px;
-      text-align: center;
+      padding: 20px 24px;
+      display: flex;
+      align-items: center;
+      justify-content: space-around;
+      flex-wrap: wrap;
+      gap: 24px;
     }
     .qr-box {
       background: #ffffff;
-      padding: 12px;
+      padding: 10px;
       border-radius: 12px;
       display: inline-block;
-      margin: 16px 0;
     }
     .qr-box img {
       display: block;
-      width: 220px;
-      height: 220px;
+      width: 170px;
+      height: 170px;
     }
-    .instructions {
-      max-width: 600px;
-      margin: 0 auto;
-      font-size: 13px;
+    .qr-info {
+      max-width: 500px;
+      font-size: 13.5px;
       line-height: 1.6;
       color: var(--muted);
-      text-align: left;
-      background: rgba(255,255,255,0.02);
-      padding: 16px;
-      border-radius: 10px;
-      border: 1px solid var(--border);
     }
-    .instructions ol { margin-left: 20px; margin-top: 6px; }
-    .toolbar-card {
+    .qr-info h4 {
+      color: var(--accent);
+      font-size: 16px;
+      margin-bottom: 8px;
+    }
+    .qr-info ol { margin-left: 20px; margin-top: 6px; }
+
+    /* Dedicated Export Buttons Section */
+    .export-section {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 20px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .export-header {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .export-buttons-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 16px;
+    }
+    .export-action-btn {
+      display: flex;
+      align-items: center;
+      gap: 16px;
+      padding: 16px 20px;
+      border-radius: 12px;
+      text-decoration: none;
+      cursor: pointer;
+      border: none;
+      transition: all 0.2s ease;
+      color: #fff;
+    }
+    .export-action-btn:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 20px rgba(0,0,0,0.3);
+    }
+    .btn-excel-card {
+      background: linear-gradient(135deg, #107c41, #0b5c30);
+      border: 1px solid #15803d;
+    }
+    .btn-csv-card {
+      background: linear-gradient(135deg, #2563eb, #1d4ed8);
+      border: 1px solid #1e40af;
+    }
+    .btn-sync-card {
+      background: linear-gradient(135deg, #374151, #1f2937);
+      border: 1px solid #4b5563;
+    }
+    .btn-icon-large {
+      font-size: 28px;
+      background: rgba(255,255,255,0.15);
+      width: 50px;
+      height: 50px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+    }
+    .btn-content {
+      display: flex;
+      flex-direction: column;
+      text-align: left;
+    }
+    .btn-title-main {
+      font-size: 16px;
+      font-weight: 700;
+    }
+    .btn-desc-sub {
+      font-size: 12px;
+      opacity: 0.85;
+      margin-top: 3px;
+    }
+
+    /* Table Toolbar */
+    .table-toolbar-card {
       background: var(--card-bg);
       border: 1px solid var(--card-border);
       border-radius: 14px;
-      padding: 16px 20px;
+      padding: 14px 20px;
       display: flex;
       justify-content: space-between;
       align-items: center;
       flex-wrap: wrap;
-      gap: 14px;
+      gap: 12px;
     }
     .search-input {
       background: rgba(255,255,255,0.04);
       border: 1px solid var(--border);
       border-radius: 8px;
-      padding: 10px 16px;
+      padding: 12px 18px;
       color: var(--text);
       font-size: 14px;
-      width: 320px;
+      width: 380px;
       max-width: 100%;
       outline: none;
       transition: border 0.2s;
@@ -294,44 +379,19 @@ function renderWebDashboard(qrDataUrl) {
     .search-input:focus {
       border-color: var(--accent);
     }
-    .btn-group {
-      display: flex;
-      gap: 10px;
-      flex-wrap: wrap;
-    }
-    .btn {
-      display: inline-flex;
-      align-items: center;
-      gap: 8px;
-      padding: 10px 18px;
-      border-radius: 8px;
+    .search-counter {
+      color: var(--muted);
+      font-size: 13.5px;
       font-weight: 600;
-      font-size: 13px;
-      text-decoration: none;
-      cursor: pointer;
-      border: none;
-      transition: all 0.2s;
     }
-    .btn-excel {
-      background: var(--excel);
-      color: #fff;
-    }
-    .btn-excel:hover {
-      background: var(--excel-hover);
-    }
-    .btn-csv {
-      background: rgba(255,255,255,0.06);
-      color: var(--text);
-      border: 1px solid var(--border);
-    }
-    .btn-csv:hover {
-      background: rgba(255,255,255,0.1);
-    }
+
+    /* Bookings Table */
     .table-card {
       background: var(--card-bg);
       border: 1px solid var(--card-border);
       border-radius: 16px;
       overflow: hidden;
+      box-shadow: 0 10px 30px rgba(0,0,0,0.4);
     }
     .table-responsive {
       overflow-x: auto;
@@ -344,35 +404,52 @@ function renderWebDashboard(qrDataUrl) {
       font-size: 13.5px;
     }
     thead th {
-      background: rgba(255,255,255,0.03);
-      color: var(--muted);
-      font-weight: 600;
-      padding: 14px 16px;
-      border-bottom: 1px solid var(--border);
+      background: linear-gradient(135deg, #f59e0b 0%, #d97706 100%);
+      color: #000000;
+      font-weight: 800;
+      font-size: 12.5px;
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+      padding: 15px 16px;
+      border: none;
       white-space: nowrap;
     }
     tbody td {
       padding: 14px 16px;
-      border-bottom: 1px solid rgba(255,255,255,0.03);
+      border-bottom: 1px solid rgba(255,255,255,0.04);
       vertical-align: middle;
     }
+    tbody tr:nth-child(even) {
+      background: rgba(255,255,255,0.015);
+    }
     tbody tr:hover {
-      background: rgba(255,255,255,0.02);
+      background: rgba(245, 158, 11, 0.05);
+    }
+    tfoot td {
+      background: rgba(255,255,255,0.04);
+      padding: 16px;
+      font-weight: 800;
+      font-size: 14px;
+      color: var(--text);
+      border-top: 2px solid var(--border);
     }
     .cell-center { text-align: center; }
     .text-muted { color: var(--muted); }
     .cell-date { white-space: nowrap; color: var(--muted); font-size: 12.5px; }
-    .cell-team { color: var(--text); }
-    .cell-game { color: var(--accent); font-weight: 500; }
-    .cell-sum { font-weight: 700; color: var(--accent); white-space: nowrap; }
+    .cell-team { color: var(--text); font-size: 14px; }
+    .team-name { color: #fff; font-weight: 700; }
+    .cell-captain { font-weight: 600; color: #e5e7eb; }
+    .cell-game { color: var(--accent); font-weight: 600; }
+    .cell-sum { font-weight: 800; color: #fbbf24; font-size: 14px; white-space: nowrap; }
     .players-pill {
-      background: rgba(245, 158, 11, 0.12);
+      background: rgba(245, 158, 11, 0.15);
       color: var(--accent);
-      padding: 4px 10px;
+      padding: 5px 12px;
       border-radius: 12px;
       font-weight: 700;
       font-size: 12.5px;
       display: inline-block;
+      white-space: nowrap;
     }
     .cell-phone {
       white-space: nowrap;
@@ -380,33 +457,53 @@ function renderWebDashboard(qrDataUrl) {
       align-items: center;
       gap: 8px;
     }
+    .phone-num {
+      font-family: monospace;
+      font-size: 13px;
+    }
     .wa-btn {
       background: #25d366;
       color: #fff;
-      padding: 3px 8px;
+      padding: 4px 10px;
       border-radius: 6px;
       text-decoration: none;
-      font-size: 12px;
-      font-weight: bold;
+      font-size: 11.5px;
+      font-weight: 700;
+      display: inline-flex;
+      align-items: center;
+      gap: 4px;
+      transition: background 0.2s;
     }
     .wa-btn:hover { background: #1ebd5b; }
+    .del-btn {
+      background: transparent;
+      border: none;
+      cursor: pointer;
+      font-size: 16px;
+      opacity: 0.6;
+      transition: opacity 0.2s, transform 0.2s;
+    }
+    .del-btn:hover {
+      opacity: 1;
+      transform: scale(1.2);
+    }
     .badge {
       display: inline-block;
-      padding: 4px 10px;
+      padding: 5px 12px;
       border-radius: 8px;
-      font-size: 11.5px;
-      font-weight: 600;
+      font-size: 12px;
+      font-weight: 700;
       white-space: nowrap;
     }
     .badge-blue { background: rgba(59, 130, 246, 0.15); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.3); }
     .badge-green { background: rgba(16, 185, 129, 0.15); color: #34d399; border: 1px solid rgba(16, 185, 129, 0.3); }
-    .badge-emerald { background: rgba(16, 185, 129, 0.2); color: #10b981; }
+    .badge-emerald { background: rgba(16, 185, 129, 0.2); color: #10b981; border: 1px solid rgba(16, 185, 129, 0.4); }
     .badge-red { background: rgba(239, 68, 68, 0.15); color: #f87171; }
     .empty-state {
-      padding: 40px 20px;
+      padding: 50px 20px;
       text-align: center;
       color: var(--muted);
-      font-size: 14px;
+      font-size: 14.5px;
     }
   </style>
   <script>
@@ -448,10 +545,8 @@ function renderWebDashboard(qrDataUrl) {
 
     async function syncGames() {
       const btn = document.getElementById('sync-btn');
-      if (btn) {
-        btn.innerText = '⏳ Обновляем...';
-        btn.disabled = true;
-      }
+      const titleSpan = document.getElementById('sync-btn-title');
+      if (titleSpan) titleSpan.innerText = '⏳ Синхронизация...';
       try {
         const res = await fetch('/api/sync-games', { method: 'POST' });
         const data = await res.json();
@@ -464,20 +559,39 @@ function renderWebDashboard(qrDataUrl) {
       } catch (e) {
         alert('⚠️ Ошибка соединения с сервером');
       } finally {
-        if (btn) {
-          btn.innerText = '🔄 Обновить игры';
-          btn.disabled = false;
+        if (titleSpan) titleSpan.innerText = 'Обновить игры';
+      }
+    }
+
+    async function deleteBooking(id, teamName) {
+      if (!confirm('Удалить бронь команды «' + teamName + '»?')) return;
+      try {
+        const res = await fetch('/api/bookings/delete?id=' + id, { method: 'POST' });
+        const data = await res.json();
+        if (data.ok) {
+          window.location.reload();
+        } else {
+          alert('Ошибка при удалении брони');
         }
+      } catch (e) {
+        alert('Ошибка сети при удалении');
       }
     }
 
     function filterTable() {
       const val = document.getElementById('searchInput').value.toLowerCase().trim();
       const rows = document.querySelectorAll('#bookingsTable tbody tr');
+      let visible = 0;
       rows.forEach(r => {
         const text = r.innerText.toLowerCase();
-        r.style.display = text.includes(val) ? '' : 'none';
+        const match = text.includes(val);
+        r.style.display = match ? '' : 'none';
+        if (match) visible++;
       });
+      const counter = document.getElementById('search-count');
+      if (counter) {
+        counter.innerText = 'Показано: ' + visible;
+      }
     }
 
     setInterval(checkStatusAndQr, 4000);
@@ -494,7 +608,7 @@ function renderWebDashboard(qrDataUrl) {
       <div>
         ${
           isConnected
-            ? `<div id="status-badge" class="status-badge status-connected"><span>●</span> Бот подключен: +${botPhone || 'WhatsApp'}</div>`
+            ? `<div id="status-badge" class="status-badge status-connected"><span>●</span> Бот онлайн: +${botPhone || 'WhatsApp'}</div>`
             : `<div id="status-badge" class="status-badge status-waiting"><span>●</span> Ожидание привязки WhatsApp</div>`
         }
       </div>
@@ -504,21 +618,20 @@ function renderWebDashboard(qrDataUrl) {
     ${
       !isConnected
         ? `
-      <div class="qr-card">
-        <h3 style="color: var(--accent); margin-bottom: 8px;">📲 Привязка номера WhatsApp</h3>
-        <p style="color: var(--muted); font-size: 13px;">Отсканируйте QR-код в приложении WhatsApp на телефоне организатора</p>
-        <div id="qr-box-container">
-          <div class="qr-box">
-            <img id="qr-img" src="${qrDataUrl || ''}" alt="WhatsApp QR">
+      <div class="qr-card-compact">
+        <div style="text-align: center;">
+          <div id="qr-box-container">
+            <div class="qr-box">
+              <img id="qr-img" src="${qrDataUrl || ''}" alt="WhatsApp QR">
+            </div>
           </div>
+          <button id="refresh-btn" onclick="requestFreshQr()" class="btn-sync-card" style="margin-top: 10px; font-size: 12px; padding: 6px 14px; border-radius: 6px; cursor: pointer; color: #fff;">🔄 Новый QR-код</button>
         </div>
-        <div style="margin-bottom: 16px;">
-          <button id="refresh-btn" onclick="requestFreshQr()" class="btn btn-csv" style="font-size: 12px; padding: 6px 14px;">🔄 Получить новый QR-код</button>
-        </div>
-        <div class="instructions">
-          <strong>Инструкция:</strong>
+        <div class="qr-info">
+          <h4>📲 Привязка номера WhatsApp</h4>
+          <p>Отсканируйте этот QR-код прямо с телефона организатора:</p>
           <ol>
-            <li>Откройте WhatsApp на телефоне.</li>
+            <li>Откройте <b>WhatsApp</b> на телефоне.</li>
             <li>Зайдите в <b>Настройки</b> ➔ <b>Связанные устройства</b>.</li>
             <li>Нажмите <b>Привязка устройства</b> и наведите камеру на QR-код.</li>
           </ol>
@@ -548,7 +661,7 @@ function renderWebDashboard(qrDataUrl) {
         <div class="metric-icon">💰</div>
         <div>
           <div class="metric-val">${totalRevenue.toLocaleString('ru-RU')} ₸</div>
-          <div class="metric-lbl">Сумма сборов (${pricePerPlayer.toLocaleString('ru-RU')} ₸/чел)</div>
+          <div class="metric-lbl">Общая сумма сборов (${pricePerPlayer.toLocaleString('ru-RU')} ₸/чел)</div>
         </div>
       </div>
       <div class="metric-card">
@@ -560,14 +673,40 @@ function renderWebDashboard(qrDataUrl) {
       </div>
     </div>
 
-    <!-- Toolbar: Search & Export -->
-    <div class="toolbar-card">
-      <input type="text" id="searchInput" class="search-input" placeholder="🔍 Поиск по команде, капитану, телефону..." oninput="filterTable()">
-      <div class="btn-group">
-        <button id="sync-btn" onclick="syncGames()" class="btn btn-csv" title="Синхронизировать игры с GitHub">🔄 Обновить игры</button>
-        <a href="/api/export/excel" class="btn btn-excel" download target="_blank">📊 Скачать Excel (.xls)</a>
-        <a href="/api/export/csv" class="btn btn-csv" download target="_blank">📄 Скачать CSV</a>
+    <!-- Dedicated Export Buttons Section -->
+    <div class="export-section">
+      <div class="export-header">📥 Выгрузка и действия</div>
+      <div class="export-buttons-grid">
+        <a href="/api/export/excel" class="export-action-btn btn-excel-card" download target="_blank">
+          <div class="btn-icon-large">📊</div>
+          <div class="btn-content">
+            <span class="btn-title-main">Скачать в Excel (.xls)</span>
+            <span class="btn-desc-sub">Красивая таблица с цветной шапкой и суммой</span>
+          </div>
+        </a>
+
+        <a href="/api/export/csv" class="export-action-btn btn-csv-card" download target="_blank">
+          <div class="btn-icon-large">📄</div>
+          <div class="btn-content">
+            <span class="btn-title-main">Скачать в CSV (.csv)</span>
+            <span class="btn-desc-sub">Таблица с разделителями (UTF-8 BOM)</span>
+          </div>
+        </a>
+
+        <button id="sync-btn" onclick="syncGames()" class="export-action-btn btn-sync-card">
+          <div class="btn-icon-large">🔄</div>
+          <div class="btn-content">
+            <span id="sync-btn-title" class="btn-title-main">Обновить игры</span>
+            <span class="btn-desc-sub">Синхронизация расписания с GitHub</span>
+          </div>
+        </button>
       </div>
+    </div>
+
+    <!-- Table Toolbar: Search & Counter -->
+    <div class="table-toolbar-card">
+      <input type="text" id="searchInput" class="search-input" placeholder="🔍 Быстрый поиск по команде, капитану, телефону..." oninput="filterTable()">
+      <div id="search-count" class="search-counter">Всего записей: ${bookings.length}</div>
     </div>
 
     <!-- Bookings Table -->
@@ -587,14 +726,24 @@ function renderWebDashboard(qrDataUrl) {
               <th>К оплате</th>
               <th class="cell-center">Источник</th>
               <th class="cell-center">Статус</th>
+              <th class="cell-center" style="width: 50px;">Удалить</th>
             </tr>
           </thead>
           <tbody>
             ${
               tableRows ||
-              '<tr><td colspan="11" class="empty-state">Броней пока нет. Они появятся здесь сразу при регистрации с сайта или из WhatsApp!</td></tr>'
+              '<tr><td colspan="12" class="empty-state">Броней пока нет. Они появятся здесь сразу при регистрации с сайта или из WhatsApp!</td></tr>'
             }
           </tbody>
+          <tfoot>
+            <tr>
+              <td colspan="3" style="text-align: right; color: var(--accent);">ИТОГО:</td>
+              <td class="cell-center" style="color: var(--accent);">👥 ${totalPlayers} чел.</td>
+              <td colspan="4"></td>
+              <td style="color: #fbbf24; font-size: 15px;">${totalRevenue.toLocaleString('ru-RU')} ₸</td>
+              <td colspan="3"></td>
+            </tr>
+          </tfoot>
         </table>
       </div>
     </div>
@@ -736,6 +885,19 @@ const webServer = http.createServer(async (req, res) => {
     } else {
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: false, error: syncRes.error }));
+    }
+    return;
+  }
+
+  if (url.pathname === '/api/bookings/delete' && req.method === 'POST') {
+    const id = url.searchParams.get('id');
+    if (id && db.bookings.delete(id)) {
+      logger.info({ bookingId: id }, 'Booking deleted via dashboard');
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true }));
+    } else {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, error: 'Booking not found' }));
     }
     return;
   }
