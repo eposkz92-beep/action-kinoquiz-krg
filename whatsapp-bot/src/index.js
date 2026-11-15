@@ -882,10 +882,20 @@ const webServer = http.createServer(async (req, res) => {
     if (syncRes.ok) {
       res.writeHead(200, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: true, message: syncRes.output }));
+      if (syncRes.hasUpdates) {
+        setTimeout(() => process.exit(0), 1000);
+      }
     } else {
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ ok: false, error: syncRes.error }));
     }
+    return;
+  }
+
+  if (url.pathname === '/api/restart-server' && req.method === 'POST') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, message: 'Server restarting...' }));
+    setTimeout(() => process.exit(0), 500);
     return;
   }
 
@@ -914,11 +924,12 @@ async function syncRepositoryGames() {
     const repoDir = path.resolve(botRootDir, '..');
     const { stdout, stderr } = await execAsync('git pull --ff-only', { cwd: repoDir });
     const output = (stdout || '').trim();
-    logger.info({ stdout: output, stderr: (stderr || '').trim() }, 'Repository auto-synced from GitHub');
-    return { ok: true, output: output || 'Уже обновлено (Already up to date).' };
+    const hasUpdates = output.includes('Updating') || output.includes('Fast-forward') || output.includes('files changed');
+    logger.info({ stdout: output, stderr: (stderr || '').trim(), hasUpdates }, 'Repository auto-synced from GitHub');
+    return { ok: true, output: output || 'Уже обновлено (Already up to date).', hasUpdates };
   } catch (err) {
     logger.warn({ err: err.message }, 'Auto-sync git pull skipped or failed');
-    return { ok: false, error: err.message };
+    return { ok: false, error: err.message, hasUpdates: false };
   }
 }
 
