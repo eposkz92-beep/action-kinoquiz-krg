@@ -36,6 +36,7 @@ const execAsync = promisify(exec);
 import config from './config.js';
 import { initDatabase, normalizePhone } from './db/database.js';
 import { exportBookingsCsv, exportBookingsToCsv, exportBookingsToExcelHtml, escapeHtml, formatBookingDate } from './db/exportCsv.js';
+import { exportBookingsToXlsxBuffer } from './db/exportXlsx.js';
 import { exportBookingsToGoogleSheets } from './db/exportSheets.js';
 import { getActiveGames } from './games/gameLoader.js';
 import { handleIncomingMessage, FSM_STATES } from './dialog/fsm.js';
@@ -680,8 +681,8 @@ function renderWebDashboard(qrDataUrl) {
         <a href="/api/export/excel" class="export-action-btn btn-excel-card" download target="_blank">
           <div class="btn-icon-large">📊</div>
           <div class="btn-content">
-            <span class="btn-title-main">Скачать в Excel (.xls)</span>
-            <span class="btn-desc-sub">Красивая таблица с цветной шапкой и суммой</span>
+            <span class="btn-title-main">Скачать в Excel (.xlsx)</span>
+            <span class="btn-desc-sub">Для телефона и ПК (официальный формат)</span>
           </div>
         </a>
 
@@ -854,7 +855,29 @@ const webServer = http.createServer(async (req, res) => {
     return;
   }
 
-  if (url.pathname === '/api/export/excel' || url.pathname === '/api/export/xls') {
+  if (url.pathname === '/api/export/excel' || url.pathname === '/api/export/xlsx') {
+    try {
+      const xlsxBuffer = exportBookingsToXlsxBuffer(db, { pricePerPlayer: config.quiz?.pricePerPlayer || 3000 });
+      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
+      const filename = `kinoquiz_bookings_${timestamp}.xlsx`;
+      res.writeHead(200, {
+        'Content-Type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'Content-Disposition': `attachment; filename="${filename}"`,
+        'Content-Length': xlsxBuffer.length,
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0'
+      });
+      res.end(xlsxBuffer);
+    } catch (err) {
+      logger.error({ err }, 'Error exporting to XLSX');
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message }));
+    }
+    return;
+  }
+
+  if (url.pathname === '/api/export/xls') {
     try {
       const excelHtml = exportBookingsToExcelHtml(db, { pricePerPlayer: config.quiz?.pricePerPlayer || 3000 });
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
