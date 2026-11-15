@@ -30,7 +30,7 @@ import { fileURLToPath } from 'node:url';
 
 import config from './config.js';
 import { initDatabase, normalizePhone } from './db/database.js';
-import { exportBookingsToCsv } from './db/exportCsv.js';
+import { exportBookingsCsv, exportBookingsToCsv } from './db/exportCsv.js';
 import { exportBookingsToGoogleSheets } from './db/exportSheets.js';
 import { getActiveGames } from './games/gameLoader.js';
 import { handleIncomingMessage, FSM_STATES } from './dialog/fsm.js';
