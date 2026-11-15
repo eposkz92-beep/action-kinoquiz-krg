@@ -2279,11 +2279,6 @@ async function handleWebRequest(req, res) {
         let telegramResult = null;
         try {
           telegramResult = await sendBookingAlert(booking, null, { isWebBooking: true });
-          if (config.telegram?.personalChatId && config.telegram?.personalChatId !== config.telegram?.chatId) {
-            sendBookingAlert(booking, { botToken: config.telegram.botToken, chatId: config.telegram.personalChatId }, { isWebBooking: true }).catch((err) => {
-              logger.warn({ err: err.message }, 'Failed delivering secondary Telegram alert to personal chat');
-            });
-          }
           logger.info({ telegramResult, bookingId: booking.id }, 'Telegram alert dispatched for website booking');
         } catch (tgErr) {
           logger.warn({ tgErr: tgErr.message }, 'Telegram alert failed in /api/public/book');

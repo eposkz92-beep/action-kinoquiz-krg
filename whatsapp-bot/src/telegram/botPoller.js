@@ -1213,7 +1213,7 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames, b
         const args = text.slice(firstWord.length).trim();
 
         // Security check
-        const isAuthorized = !targetChatId || chatId === targetChatId || chatId === '443670744' || String(msg.from?.id) === '443670744';
+        const isAuthorized = !targetChatId || chatId === targetChatId;
 
         if (!isAuthorized) {
           logger.warn({ chatId, from: msg.from?.username }, 'Unauthorized Telegram interaction ignored');
