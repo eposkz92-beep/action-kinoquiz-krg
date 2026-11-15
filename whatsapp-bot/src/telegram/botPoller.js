@@ -1,5 +1,21 @@
 import { exportBookingsToXlsxBuffer } from '../db/exportXlsx.js';
 import { escapeHtml } from '../db/exportCsv.js';
+import { getActiveGames } from '../games/gameLoader.js';
+
+/**
+ * Builds an ASCII/Emoji progress bar
+ * @param {number} current
+ * @param {number} total
+ * @param {number} [barLength=10]
+ * @returns {string} e.g. "▓▓▓░░░░░░░ 30%"
+ */
+function makeProgressBar(current, total, barLength = 10) {
+  if (total <= 0) return '░'.repeat(barLength) + ' 0%';
+  const pct = Math.min(100, Math.max(0, Math.round((current / total) * 100)));
+  const filled = Math.min(barLength, Math.round((pct / 100) * barLength));
+  const empty = barLength - filled;
+  return '▓'.repeat(filled) + '░'.repeat(empty) + ` ${pct}%`;
+}
 
 /**
  * Initializes and starts Telegram bot polling for organizer command & button handling.
@@ -15,6 +31,7 @@ import { escapeHtml } from '../db/exportCsv.js';
 export function startTelegramPoller({ db, config, logger, syncRepositoryGames }) {
   const token = config.telegram?.botToken;
   const targetChatId = String(config.telegram?.chatId || '');
+  const venueCapacity = Number(config.quiz?.venueCapacity) || 60; // Max capacity in Karaoke Bar "To Mesto"
 
   if (!token) {
     logger.warn('Telegram botToken not configured, poller will not start');
@@ -85,11 +102,18 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames })
     }
   }
 
-  async function sendBookingsList(chatId) {
+  async function sendBookingsList(chatId, filterGame = null) {
     try {
-      const bookings = db.bookings.list({ limit: 100 }) || [];
+      let bookings = db.bookings.list({ limit: 100 }) || [];
+      if (filterGame) {
+        bookings = bookings.filter(b => (b.game_title || '').toLowerCase().includes(filterGame.toLowerCase()));
+      }
+
       if (bookings.length === 0) {
-        await sendMessage(chatId, '📋 <b>Броней пока нет.</b>');
+        await sendMessage(chatId, filterGame
+          ? `📋 <b>Броней на игру «${escapeHtml(filterGame)}» пока нет.</b>`
+          : '📋 <b>Броней пока нет.</b>'
+        );
         return;
       }
 
@@ -97,7 +121,11 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames })
       let totalPlayers = 0;
       let totalSum = 0;
 
-      const lines = ['📋 <b>СПИСОК БРОНЕЙ — ACTION КИНОКВИЗ</b>', ''];
+      const titleHeader = filterGame
+        ? `📋 <b>БРОНИ: «${escapeHtml(filterGame)}»</b>`
+        : '📋 <b>АКТУАЛЬНЫЙ СПИСОК БРОНЕЙ</b>';
+
+      const lines = [titleHeader, ''];
       bookings.forEach((b, i) => {
         const players = Number(b.players_count) || 0;
         const fee = players * price;
@@ -112,19 +140,34 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames })
         const statusIcon = b.status === 'cancelled' ? '❌' : '✅';
 
         lines.push(`<b>${i + 1}. «${escapeHtml(b.team_name)}»</b> ${statusIcon} — 👥 <b>${players} чел.</b> (${fee.toLocaleString('ru-RU')} ₸)`);
-        lines.push(`   👤 Капитан: ${escapeHtml(b.captain_name)} • 📱 ${waLink}`);
-        lines.push(`   🎬 Игра: <i>${escapeHtml(b.game_title)} (${escapeHtml(b.game_date)})</i>`);
+        lines.push(`   👤 ${escapeHtml(b.captain_name)} • 📱 ${waLink}`);
+        if (!filterGame) {
+          lines.push(`   🎬 <i>${escapeHtml(b.game_title)} (${escapeHtml(b.game_date)})</i>`);
+        }
         if (b.notes) {
-          lines.push(`   📝 Примечание: <i>${escapeHtml(b.notes)}</i>`);
+          lines.push(`   📝 <i>${escapeHtml(b.notes)}</i>`);
         }
         lines.push('');
       });
 
       lines.push(`─────────────`);
-      lines.push(`👥 <b>ИТОГО ИГРОКОВ:</b> ${totalPlayers} чел.`);
-      lines.push(`💰 <b>ОЖИДАЕМЫЙ СБОР:</b> ${totalSum.toLocaleString('ru-RU')} ₸`);
+      lines.push(`👥 <b>Всего игроков:</b> ${totalPlayers} чел.`);
+      lines.push(`💰 <b>Ожидаемый сбор:</b> ${totalSum.toLocaleString('ru-RU')} ₸`);
 
-      await sendMessage(chatId, lines.join('\n'));
+      const replyMarkup = {
+        inline_keyboard: [
+          [
+            { text: '🎬 Киномарафон (17.11)', callback_data: 'filter_game_1' },
+            { text: '🎌 Аниме (24.11)', callback_data: 'filter_game_2' }
+          ],
+          [
+            { text: '🌟 Все игры', callback_data: 'bookings' },
+            { text: '📥 Скачать Excel', callback_data: 'excel' }
+          ]
+        ]
+      };
+
+      await sendMessage(chatId, lines.join('\n'), { reply_markup: replyMarkup });
     } catch (err) {
       logger.error({ err: err.message }, 'Failed to send bookings list');
       await sendMessage(chatId, '❌ Ошибка при получении списка броней.');
@@ -140,18 +183,48 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames })
       const totalSum = totalPlayers * price;
       const activeBookings = bookings.filter(b => b.status !== 'cancelled').length;
 
+      // Group by games
+      const games = getActiveGames();
+      const gameStatsLines = [];
+
+      games.forEach((g) => {
+        const gameBookings = bookings.filter(b => (b.game_title || '').includes(g.title) || (b.game_date || '').includes(g.dateStr));
+        const players = gameBookings.reduce((sum, b) => sum + (Number(b.players_count) || 0), 0);
+        const freeSpots = Math.max(0, venueCapacity - players);
+        const freeTables = Math.floor(freeSpots / 6);
+        const bar = makeProgressBar(players, venueCapacity);
+
+        gameStatsLines.push(`🎬 <b>«${escapeHtml(g.title)}»</b> (${escapeHtml(g.dateStr)})`);
+        gameStatsLines.push(`   📊 Занято: <b>${players}</b> / ${venueCapacity} мест ${bar}`);
+        gameStatsLines.push(`   🪑 Команд: ${gameBookings.length} • Свободно ~${freeTables} столов (${freeSpots} мест)`);
+        gameStatsLines.push('');
+      });
+
       const text = [
-        '📊 <b>ПАРИЛКА СТАТИСТИКИ — ACTION КИНОКВИЗ</b>',
+        '📊 <b>СТАТИСТИКА И ПОСАДКА ЗАЛА — ACTION КИНОКВИЗ</b>',
         '',
         `🎟️ <b>Всего броней:</b> ${bookings.length} (активных: ${activeBookings})`,
         `👥 <b>Всего игроков:</b> ${totalPlayers} чел.`,
         `💰 <b>Ожидаемый сбор:</b> ${totalSum.toLocaleString('ru-RU')} ₸`,
-        `📇 <b>База контактов:</b> ${contacts.length} чел.`,
-        `📍 <b>Локация:</b> ${config.quiz?.location || 'Караоке-бар «То Место»'}`,
-        `⏰ <b>Обновлено:</b> ${new Date().toLocaleString('ru-RU', { timeZone: 'Asia/Almaty' })}`
+        `📇 <b>База контактов:</b> ${contacts.length} капитанов`,
+        '',
+        '📌 <b>Заполненность зала по играм («То Место»):</b>',
+        '',
+        gameStatsLines.join('\n'),
+        `📍 <b>Адрес:</b> ${config.quiz?.location || 'Караоке-бар «То Место»'}`,
+        `⏰ <b>Сформировано:</b> ${new Date().toLocaleString('ru-RU', { timeZone: 'Asia/Almaty' })}`
       ].join('\n');
 
-      await sendMessage(chatId, text);
+      const replyMarkup = {
+        inline_keyboard: [
+          [
+            { text: '📋 Список броней', callback_data: 'bookings' },
+            { text: '📥 Скачать Excel', callback_data: 'excel' }
+          ]
+        ]
+      };
+
+      await sendMessage(chatId, text, { reply_markup: replyMarkup });
     } catch (err) {
       logger.error({ err: err.message }, 'Failed to send stats');
     }
@@ -167,11 +240,16 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames })
     const replyMarkup = {
       inline_keyboard: [
         [
-          { text: '📊 Статистика', callback_data: 'stats' },
+          { text: '📊 Статистика и посадка', callback_data: 'stats' },
           { text: '📋 Список броней', callback_data: 'bookings' }
         ],
         [
-          { text: '📥 Скачать Excel (.xlsx)', callback_data: 'excel' }
+          { text: '🎬 Киномарафон (17.11)', callback_data: 'filter_game_1' },
+          { text: '🎌 Аниме (24.11)', callback_data: 'filter_game_2' }
+        ],
+        [
+          { text: '📥 Скачать Excel (.xlsx)', callback_data: 'excel' },
+          { text: '➕ Быстрая бронь', callback_data: 'help_add' }
         ],
         [
           { text: '🔄 Обновить игры с GitHub', callback_data: 'sync' }
@@ -180,6 +258,84 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames })
     };
 
     await sendMessage(chatId, text, { reply_markup: replyMarkup });
+  }
+
+  async function handleAddCommand(chatId, argsStr) {
+    const games = getActiveGames();
+    if (!argsStr || !argsStr.trim()) {
+      const g1 = games[0] ? games[0].title : 'Киномарафон: 100 вопросов';
+      const g2 = games[1] ? games[1].title : 'Культовые Аниме';
+
+      const helpText = [
+        '➕ <b>БЫСТРОЕ ДОБАВЛЕНИЕ БРОНИ ВРУЧНУЮ</b>',
+        '',
+        'Чтобы записать команду, отправьте сообщение в формате (через запятую):',
+        '<code>/add Команда, Капитан, Телефон, Игроков, Номер игры, Примечание</code>',
+        '',
+        '👉 <b>Номера активных игр:</b>',
+        `1 = ${escapeHtml(g1)} (17 ноября)`,
+        `2 = ${escapeHtml(g2)} (24 ноября)`,
+        '',
+        '💡 <b>Пример (скопируйте и измените):</b>',
+        '<code>/add Гарри Поттер, Гермиона, +77015554433, 6, 1, Столик у сцены</code>'
+      ].join('\n');
+
+      await sendMessage(chatId, helpText);
+      return;
+    }
+
+    // Parse comma-separated arguments
+    const parts = argsStr.split(',').map(s => s.trim());
+    if (parts.length < 4) {
+      await sendMessage(chatId, '⚠️ <b>Недостаточно данных.</b>\nФормат: <code>/add Команда, Капитан, Телефон, Игроков, [Игра 1/2], [Примечание]</code>');
+      return;
+    }
+
+    const teamName = parts[0];
+    const captainName = parts[1];
+    const captainPhone = parts[2];
+    const playersCount = parseInt(parts[3], 10) || 6;
+    const gameChoice = parts[4] || '1';
+    const notes = parts.slice(5).join(', ') || '';
+
+    let chosenGame = games[0] || { title: 'Киномарафон: 100 вопросов', dateStr: '17 ноября' };
+    if (gameChoice === '2' && games[1]) {
+      chosenGame = games[1];
+    } else if (gameChoice.length > 2) {
+      const match = games.find(g => g.title.toLowerCase().includes(gameChoice.toLowerCase()));
+      if (match) chosenGame = match;
+    }
+
+    try {
+      const booking = db.bookings.create({
+        teamName,
+        captainName,
+        captainPhone,
+        playersCount,
+        gameTitle: chosenGame.title,
+        gameDate: chosenGame.dateStr,
+        source: 'telegram_manual',
+        status: 'confirmed',
+        notes
+      });
+
+      const successText = [
+        '✅ <b>БРОНЬ УСПЕШНО ДОБАВЛЕНА!</b>',
+        '',
+        `👥 <b>Команда:</b> «${escapeHtml(booking.team_name)}»`,
+        `👤 <b>Капитан:</b> ${escapeHtml(booking.captain_name)} (📱 ${escapeHtml(booking.captain_phone)})`,
+        `🔢 <b>Игроков:</b> ${booking.players_count} чел.`,
+        `🎬 <b>Игра:</b> ${escapeHtml(booking.game_title)} (${escapeHtml(booking.game_date)})`,
+        notes ? `📝 <b>Примечание:</b> <i>${escapeHtml(notes)}</i>` : '',
+        '',
+        '<i>Бронь внесена в базу данных и сразу доступна в Excel и на панели!</i>'
+      ].filter(Boolean).join('\n');
+
+      await sendMessage(chatId, successText);
+    } catch (err) {
+      logger.error({ err: err.message }, 'Failed to add manual booking');
+      await sendMessage(chatId, `❌ Ошибка при создании брони: ${escapeHtml(err.message)}`);
+    }
   }
 
   async function handleSync(chatId) {
@@ -206,9 +362,10 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames })
         const msg = update.message;
         const chatId = String(msg.chat.id);
         const text = msg.text.trim();
-        const cmd = text.split(' ')[0].toLowerCase().replace('@actionquiz_bot', '');
+        const firstWord = text.split(/\s+/)[0].toLowerCase().replace('@actionquiz_bot', '');
+        const args = text.slice(firstWord.length).trim();
 
-        // Security check: only respond in the designated group or from admins
+        // Security check
         const isAuthorized = !targetChatId || chatId === targetChatId || chatId === '443670744' || String(msg.from?.id) === '443670744';
 
         if (!isAuthorized) {
@@ -216,15 +373,17 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames })
           return;
         }
 
-        if (cmd === '/start' || cmd === '/admin' || cmd === '/menu' || cmd === 'панель' || cmd === 'меню') {
+        if (firstWord === '/start' || firstWord === '/admin' || firstWord === '/menu' || firstWord === 'панель' || firstWord === 'меню') {
           await sendMainMenu(chatId);
-        } else if (cmd === '/excel' || cmd === '/xlsx') {
+        } else if (firstWord === '/excel' || firstWord === '/xlsx') {
           await sendExcelDocument(chatId);
-        } else if (cmd === '/bookings' || cmd === '/list' || cmd === '/брони') {
+        } else if (firstWord === '/bookings' || firstWord === '/list' || firstWord === '/брони') {
           await sendBookingsList(chatId);
-        } else if (cmd === '/stats' || cmd === '/статистика') {
+        } else if (firstWord === '/stats' || firstWord === '/статистика') {
           await sendStats(chatId);
-        } else if (cmd === '/sync' || cmd === '/обновить') {
+        } else if (firstWord === '/add' || firstWord === '/добавить') {
+          await handleAddCommand(chatId, args);
+        } else if (firstWord === '/sync' || firstWord === '/обновить') {
           await handleSync(chatId);
         }
       }
@@ -241,8 +400,14 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames })
           await sendStats(chatId);
         } else if (data === 'bookings') {
           await sendBookingsList(chatId);
+        } else if (data === 'filter_game_1') {
+          await sendBookingsList(chatId, 'Киномарафон');
+        } else if (data === 'filter_game_2') {
+          await sendBookingsList(chatId, 'Аниме');
         } else if (data === 'excel') {
           await sendExcelDocument(chatId);
+        } else if (data === 'help_add') {
+          await handleAddCommand(chatId, '');
         } else if (data === 'sync') {
           await handleSync(chatId);
         }
@@ -266,7 +431,8 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames })
             { command: 'menu', description: 'Панель управления ACTION Киноквиз' },
             { command: 'excel', description: '📥 Скачать выгрузку в Excel (.xlsx)' },
             { command: 'bookings', description: '📋 Список зарегистрированных команд' },
-            { command: 'stats', description: '📊 Статистика сбора и игроков' },
+            { command: 'stats', description: '📊 Статистика и посадка зала' },
+            { command: 'add', description: '➕ Быстро добавить бронь вручную' },
             { command: 'sync', description: '🔄 Обновить игры с GitHub' }
           ]
         })
@@ -296,7 +462,6 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames })
         }
       } catch (err) {
         if (!isRunning) break;
-        // Wait 3 seconds on network error before retrying
         await new Promise(r => setTimeout(r, 3000));
       }
     }

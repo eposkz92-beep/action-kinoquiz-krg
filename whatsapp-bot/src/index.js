@@ -87,11 +87,56 @@ let scheduler = null;
  */
 function renderWebDashboard(qrDataUrl) {
   const bookings = db.bookings.list({ limit: 1000 }) || [];
-  const contactsCount = db.contacts.list({ limit: 1000 }).length;
+  const contactsCount = db.contacts ? db.contacts.list({ limit: 1000 }).length : 0;
   const pricePerPlayer = Number(config.quiz?.pricePerPlayer) || 3000;
   const totalPlayers = bookings.reduce((sum, b) => sum + (Number(b.players_count) || 0), 0);
   const totalRevenue = totalPlayers * pricePerPlayer;
+  const venueCapacity = Number(config.quiz?.venueCapacity) || 60;
+  const activeGames = getActiveGames();
 
+  // 1. Capacity progress cards for active games
+  const capacityCardsHtml = activeGames.map((game, idx) => {
+    const matchingBookings = bookings.filter(b => {
+      const gTitle = (b.game_title || '').toLowerCase();
+      const target = (game.title || '').toLowerCase();
+      return gTitle.includes(target) || target.includes(gTitle) || (game.dateStr && gTitle.includes(game.dateStr.toLowerCase()));
+    });
+    const gamePlayers = matchingBookings.reduce((sum, b) => sum + (Number(b.players_count) || 0), 0);
+    const pct = Math.min(100, Math.round((gamePlayers / venueCapacity) * 100));
+    const remaining = Math.max(0, venueCapacity - gamePlayers);
+    const barGradient = pct >= 90
+      ? 'linear-gradient(90deg, #ef4444, #dc2626)'
+      : pct >= 65
+      ? 'linear-gradient(90deg, #f59e0b, #d97706)'
+      : 'linear-gradient(90deg, #10b981, #059669)';
+
+    return `
+      <div class="capacity-game-card">
+        <div class="capacity-card-header">
+          <div class="capacity-game-info">
+            <span class="capacity-game-badge">Игра #${idx + 1}</span>
+            <span class="capacity-game-title">${escapeHtml(game.title)}</span>
+          </div>
+          <div class="capacity-pct-badge">${pct}%</div>
+        </div>
+        <div class="capacity-card-meta">
+          <span>📅 <b>${escapeHtml(game.dateStr || '')}</b> в ${escapeHtml(game.timeStr || '19:30')}</span>
+          <span>📍 ${escapeHtml(config.quiz?.location || 'Караоке-бар «То Место»')}</span>
+        </div>
+        <div class="capacity-track">
+          <div class="capacity-fill" style="width: ${pct}%; background: ${barGradient};"></div>
+        </div>
+        <div class="capacity-card-footer">
+          <span>Занято: <b>${gamePlayers}</b> / ${venueCapacity} мест (<b>${matchingBookings.length}</b> команд)</span>
+          <span class="${remaining > 0 ? 'text-success' : 'text-danger'}">
+            ${remaining > 0 ? `🟢 Свободно: <b>${remaining}</b> мест` : '🔴 <b>Все места заняты!</b>'}
+          </span>
+        </div>
+      </div>
+    `;
+  }).join('\n');
+
+  // 2. Table rows
   const tableRows = bookings.map((b, i) => {
     const players = Number(b.players_count) || 0;
     const sum = players * pricePerPlayer;
@@ -109,7 +154,7 @@ function renderWebDashboard(qrDataUrl) {
       : '<span class="badge badge-emerald">✅ Подтверждена</span>';
 
     return `
-      <tr id="booking-row-${b.id}">
+      <tr id="booking-row-${b.id}" class="booking-row" data-game="${escapeHtml(b.game_title || '')}" data-players="${players}" data-sum="${sum}">
         <td class="cell-center text-muted"><b>${b.id || (i + 1)}</b></td>
         <td class="cell-date">${escapeHtml(formatBookingDate(b.created_at))}</td>
         <td class="cell-team"><span class="team-name">${escapeHtml(b.team_name)}</span></td>
@@ -135,8 +180,18 @@ function renderWebDashboard(qrDataUrl) {
 <html lang="ru">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>ACTION Киноквиз — Панель бронирований</title>
+
+  <!-- PWA & Mobile Web App Meta -->
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="Киноквиз">
+  <meta name="theme-color" content="#f59e0b">
+  <link rel="manifest" href="/manifest.json">
+  <link rel="icon" href="/icon.svg" type="image/svg+xml">
+
   <style>
     :root {
       --bg: #0b0914;
@@ -278,7 +333,101 @@ function renderWebDashboard(qrDataUrl) {
     }
     .qr-info ol { margin-left: 20px; margin-top: 6px; }
 
-    /* Dedicated Export Buttons Section */
+    /* Capacity Progress Section */
+    .capacity-section {
+      background: var(--card-bg);
+      border: 1px solid var(--card-border);
+      border-radius: 16px;
+      padding: 20px 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 14px;
+    }
+    .section-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .capacity-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      gap: 16px;
+    }
+    .capacity-game-card {
+      background: rgba(255,255,255,0.02);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 16px 18px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .capacity-card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 12px;
+    }
+    .capacity-game-info {
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .capacity-game-badge {
+      font-size: 11px;
+      font-weight: 700;
+      color: var(--accent);
+      text-transform: uppercase;
+      letter-spacing: 0.5px;
+    }
+    .capacity-game-title {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text);
+    }
+    .capacity-pct-badge {
+      font-size: 13px;
+      font-weight: 800;
+      padding: 3px 8px;
+      border-radius: 8px;
+      background: rgba(245, 158, 11, 0.15);
+      color: var(--accent);
+      border: 1px solid rgba(245, 158, 11, 0.3);
+      white-space: nowrap;
+    }
+    .capacity-card-meta {
+      font-size: 12.5px;
+      color: var(--muted);
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px;
+    }
+    .capacity-track {
+      background: rgba(255,255,255,0.06);
+      height: 10px;
+      border-radius: 999px;
+      overflow: hidden;
+    }
+    .capacity-fill {
+      height: 100%;
+      border-radius: 999px;
+      transition: width 0.4s ease;
+    }
+    .capacity-card-footer {
+      font-size: 12.5px;
+      color: var(--muted);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 8px;
+    }
+    .text-success { color: #10b981; }
+    .text-danger { color: #ef4444; }
+
+    /* Dedicated Export & Actions Section */
     .export-section {
       background: var(--card-bg);
       border: 1px solid var(--card-border);
@@ -289,7 +438,7 @@ function renderWebDashboard(qrDataUrl) {
       gap: 14px;
     }
     .export-header {
-      font-size: 15px;
+      font-size: 14px;
       font-weight: 700;
       color: var(--muted);
       text-transform: uppercase;
@@ -297,7 +446,7 @@ function renderWebDashboard(qrDataUrl) {
     }
     .export-buttons-grid {
       display: grid;
-      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
       gap: 16px;
     }
     .export-action-btn {
@@ -324,15 +473,23 @@ function renderWebDashboard(qrDataUrl) {
       background: linear-gradient(135deg, #2563eb, #1d4ed8);
       border: 1px solid #1e40af;
     }
+    .btn-add-card {
+      background: linear-gradient(135deg, #f59e0b, #d97706);
+      border: 1px solid #b45309;
+      color: #0b0914;
+    }
+    .btn-add-card .btn-title-main { color: #0b0914; }
+    .btn-add-card .btn-desc-sub { color: #451a03; }
+    .btn-add-card .btn-icon-large { background: rgba(0,0,0,0.12); color: #0b0914; }
     .btn-sync-card {
       background: linear-gradient(135deg, #374151, #1f2937);
       border: 1px solid #4b5563;
     }
     .btn-icon-large {
-      font-size: 28px;
+      font-size: 26px;
       background: rgba(255,255,255,0.15);
-      width: 50px;
-      height: 50px;
+      width: 48px;
+      height: 48px;
       border-radius: 10px;
       display: flex;
       align-items: center;
@@ -345,13 +502,59 @@ function renderWebDashboard(qrDataUrl) {
       text-align: left;
     }
     .btn-title-main {
-      font-size: 16px;
+      font-size: 15.5px;
       font-weight: 700;
     }
     .btn-desc-sub {
       font-size: 12px;
       opacity: 0.85;
       margin-top: 3px;
+    }
+
+    /* Filter Pills Bar */
+    .filter-pills-bar {
+      display: flex;
+      gap: 10px;
+      overflow-x: auto;
+      padding-bottom: 4px;
+      flex-wrap: wrap;
+    }
+    .filter-pill {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      color: var(--muted);
+      padding: 10px 18px;
+      border-radius: 999px;
+      font-size: 13.5px;
+      font-weight: 600;
+      cursor: pointer;
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      transition: all 0.2s ease;
+      white-space: nowrap;
+    }
+    .filter-pill:hover {
+      border-color: var(--accent);
+      color: var(--text);
+    }
+    .filter-pill.active {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: #0b0914;
+      font-weight: 700;
+      box-shadow: 0 4px 14px rgba(245, 158, 11, 0.3);
+    }
+    .pill-badge {
+      background: rgba(0,0,0,0.2);
+      padding: 2px 8px;
+      border-radius: 12px;
+      font-size: 11.5px;
+    }
+    .filter-pill.active .pill-badge {
+      background: rgba(0,0,0,0.25);
+      color: #0b0914;
+      font-weight: 800;
     }
 
     /* Table Toolbar */
@@ -507,8 +710,141 @@ function renderWebDashboard(qrDataUrl) {
       color: var(--muted);
       font-size: 14.5px;
     }
+
+    /* Modal Dialog */
+    .modal-backdrop {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100vw;
+      height: 100vh;
+      background: rgba(0,0,0,0.75);
+      backdrop-filter: blur(4px);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 9999;
+      padding: 16px;
+    }
+    .modal-card {
+      background: #18132e;
+      border: 1px solid var(--accent);
+      border-radius: 20px;
+      max-width: 540px;
+      width: 100%;
+      padding: 26px 28px;
+      box-shadow: 0 20px 50px rgba(0,0,0,0.6);
+      animation: modalIn 0.25s ease-out;
+    }
+    @keyframes modalIn {
+      from { opacity: 0; transform: scale(0.95); }
+      to { opacity: 1; transform: scale(1); }
+    }
+    .modal-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 20px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    .modal-title {
+      font-size: 18px;
+      font-weight: 800;
+      color: var(--accent);
+    }
+    .modal-close {
+      background: transparent;
+      border: none;
+      color: var(--muted);
+      font-size: 22px;
+      cursor: pointer;
+      line-height: 1;
+      padding: 4px;
+      transition: color 0.2s;
+    }
+    .modal-close:hover { color: #fff; }
+    .form-group {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      margin-bottom: 16px;
+    }
+    .form-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 16px;
+    }
+    @media (max-width: 520px) {
+      .form-row { grid-template-columns: 1fr; gap: 0; }
+    }
+    .form-label {
+      font-size: 12.5px;
+      font-weight: 600;
+      color: var(--muted);
+    }
+    .form-label .req { color: var(--error); }
+    .form-input {
+      background: rgba(255,255,255,0.05);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 11px 14px;
+      color: #fff;
+      font-size: 14px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    .form-input:focus {
+      border-color: var(--accent);
+    }
+    .form-input option {
+      background: #18132e;
+      color: #fff;
+    }
+    .modal-error {
+      background: rgba(239, 68, 68, 0.15);
+      border: 1px solid var(--error);
+      color: #f87171;
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 13px;
+      margin-bottom: 16px;
+    }
+    .modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 12px;
+      margin-top: 24px;
+    }
+    .btn-cancel {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--muted);
+      padding: 10px 18px;
+      border-radius: 10px;
+      cursor: pointer;
+      font-weight: 600;
+      font-size: 13.5px;
+    }
+    .btn-cancel:hover { color: #fff; border-color: var(--muted); }
+    .btn-submit {
+      background: var(--accent);
+      border: none;
+      color: #0b0914;
+      padding: 10px 22px;
+      border-radius: 10px;
+      cursor: pointer;
+      font-weight: 800;
+      font-size: 13.5px;
+      transition: background 0.2s, transform 0.1s;
+    }
+    .btn-submit:hover { background: #d97706; transform: translateY(-1px); }
+    .btn-submit:disabled { opacity: 0.5; cursor: not-allowed; }
   </style>
+
   <script>
+    let currentFilter = 'all';
+
     async function checkStatusAndQr() {
       try {
         const res = await fetch('/api/qr-data');
@@ -546,7 +882,6 @@ function renderWebDashboard(qrDataUrl) {
     }
 
     async function syncGames() {
-      const btn = document.getElementById('sync-btn');
       const titleSpan = document.getElementById('sync-btn-title');
       if (titleSpan) titleSpan.innerText = '⏳ Синхронизация...';
       try {
@@ -580,19 +915,137 @@ function renderWebDashboard(qrDataUrl) {
       }
     }
 
+    function setGameFilter(game, btnEl) {
+      currentFilter = game;
+      document.querySelectorAll('.filter-pill').forEach(p => p.classList.remove('active'));
+      if (btnEl) btnEl.classList.add('active');
+      applyFilters();
+    }
+
     function filterTable() {
-      const val = document.getElementById('searchInput').value.toLowerCase().trim();
-      const rows = document.querySelectorAll('#bookingsTable tbody tr');
-      let visible = 0;
+      applyFilters();
+    }
+
+    function applyFilters() {
+      const searchVal = (document.getElementById('searchInput')?.value || '').toLowerCase().trim();
+      const rows = document.querySelectorAll('#bookingsTable tbody tr.booking-row');
+      let visibleCount = 0;
+      let visiblePlayers = 0;
+      let visibleSum = 0;
+
       rows.forEach(r => {
-        const text = r.innerText.toLowerCase();
-        const match = text.includes(val);
-        r.style.display = match ? '' : 'none';
-        if (match) visible++;
+        const rowText = r.innerText.toLowerCase();
+        const rowGame = (r.getAttribute('data-game') || '').toLowerCase();
+        const players = Number(r.getAttribute('data-players')) || 0;
+        const sum = Number(r.getAttribute('data-sum')) || 0;
+
+        const matchesSearch = !searchVal || rowText.includes(searchVal);
+        let matchesGame = true;
+        if (currentFilter !== 'all') {
+          const filterLower = currentFilter.toLowerCase();
+          matchesGame = rowGame.includes(filterLower) || filterLower.includes(rowGame);
+        }
+
+        const visible = matchesSearch && matchesGame;
+        r.style.display = visible ? '' : 'none';
+
+        if (visible) {
+          visibleCount++;
+          visiblePlayers += players;
+          visibleSum += sum;
+        }
       });
-      const counter = document.getElementById('search-count');
-      if (counter) {
-        counter.innerText = 'Показано: ' + visible;
+
+      const countEl = document.getElementById('search-count');
+      if (countEl) countEl.innerText = 'Показано: ' + visibleCount + ' из ' + rows.length;
+
+      const fPlayers = document.getElementById('footer-players');
+      if (fPlayers) fPlayers.innerText = '👥 ' + visiblePlayers + ' чел.';
+
+      const fSum = document.getElementById('footer-sum');
+      if (fSum) fSum.innerText = visibleSum.toLocaleString('ru-RU') + ' ₸';
+    }
+
+    function openBookingModal() {
+      const modal = document.getElementById('bookingModal');
+      if (modal) {
+        modal.style.display = 'flex';
+        document.getElementById('mTeamName')?.focus();
+      }
+    }
+
+    function closeBookingModal() {
+      const modal = document.getElementById('bookingModal');
+      if (modal) modal.style.display = 'none';
+      const errEl = document.getElementById('modalError');
+      if (errEl) errEl.style.display = 'none';
+    }
+
+    async function submitBooking(event) {
+      event.preventDefault();
+      const errEl = document.getElementById('modalError');
+      const submitBtn = document.getElementById('mSubmitBtn');
+      if (errEl) errEl.style.display = 'none';
+
+      const teamName = document.getElementById('mTeamName')?.value.trim();
+      const captainName = document.getElementById('mCaptainName')?.value.trim();
+      const captainPhone = document.getElementById('mCaptainPhone')?.value.trim();
+      const playersCount = parseInt(document.getElementById('mPlayersCount')?.value, 10) || 5;
+      const gameRaw = document.getElementById('mGameSelect')?.value || '';
+      const [gameTitle, gameDate] = gameRaw.split('|');
+      const notes = document.getElementById('mNotes')?.value.trim() || '';
+
+      if (!teamName || !captainName || !captainPhone) {
+        if (errEl) {
+          errEl.innerText = 'Пожалуйста, заполните все обязательные поля';
+          errEl.style.display = 'block';
+        }
+        return;
+      }
+
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.innerText = '⏳ Сохранение...';
+      }
+
+      try {
+        const res = await fetch('/api/bookings/create', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            teamName,
+            captainName,
+            captainPhone,
+            playersCount,
+            gameTitle,
+            gameDate,
+            source: 'web',
+            status: 'confirmed',
+            notes
+          })
+        });
+
+        const data = await res.json();
+        if (data.ok) {
+          alert('✅ Бронь команды «' + teamName + '» успешно добавлена!\nУведомление отправлено в Telegram.');
+          closeBookingModal();
+          window.location.reload();
+        } else {
+          if (errEl) {
+            errEl.innerText = 'Ошибка: ' + (data.error || 'Не удалось сохранить бронь');
+            errEl.style.display = 'block';
+          }
+        }
+      } catch (err) {
+        if (errEl) {
+          errEl.innerText = 'Ошибка сети при сохранении';
+          errEl.style.display = 'block';
+        }
+      } finally {
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.innerText = '💾 Зарегистрировать';
+        }
       }
     }
 
@@ -643,7 +1096,7 @@ function renderWebDashboard(qrDataUrl) {
         : ''
     }
 
-    <!-- Metrics -->
+    <!-- Metrics Grid -->
     <div class="metrics-grid">
       <div class="metric-card">
         <div class="metric-icon">🎯</div>
@@ -663,27 +1116,43 @@ function renderWebDashboard(qrDataUrl) {
         <div class="metric-icon">💰</div>
         <div>
           <div class="metric-val">${totalRevenue.toLocaleString('ru-RU')} ₸</div>
-          <div class="metric-lbl">Общая сумма сборов (${pricePerPlayer.toLocaleString('ru-RU')} ₸/чел)</div>
+          <div class="metric-lbl">Общая сумма (${pricePerPlayer.toLocaleString('ru-RU')} ₸/чел)</div>
         </div>
       </div>
       <div class="metric-card">
         <div class="metric-icon">📱</div>
         <div>
           <div class="metric-val">${contactsCount}</div>
-          <div class="metric-lbl">Капитанов в базе рассылки</div>
+          <div class="metric-lbl">Капитанов в базе</div>
         </div>
       </div>
     </div>
 
-    <!-- Dedicated Export Buttons Section -->
+    <!-- Capacity Progress Bars for Active Games -->
+    <div class="capacity-section">
+      <div class="section-title">📊 Заполняемость зала («То Место», макс ${venueCapacity} мест)</div>
+      <div class="capacity-grid">
+        ${capacityCardsHtml || '<div class="text-muted">Нет активных игр в расписании</div>'}
+      </div>
+    </div>
+
+    <!-- Actions & Export Buttons Section -->
     <div class="export-section">
-      <div class="export-header">📥 Выгрузка и действия</div>
+      <div class="export-header">📥 Действия и выгрузка</div>
       <div class="export-buttons-grid">
+        <button onclick="openBookingModal()" class="export-action-btn btn-add-card">
+          <div class="btn-icon-large">➕</div>
+          <div class="btn-content">
+            <span class="btn-title-main">Добавить бронь</span>
+            <span class="btn-desc-sub">Быстрая регистрация команды</span>
+          </div>
+        </button>
+
         <a href="/api/export/excel" class="export-action-btn btn-excel-card" download target="_blank">
           <div class="btn-icon-large">📊</div>
           <div class="btn-content">
             <span class="btn-title-main">Скачать в Excel (.xlsx)</span>
-            <span class="btn-desc-sub">Для телефона и ПК (официальный формат)</span>
+            <span class="btn-desc-sub">Официальный формат для телефона и ПК</span>
           </div>
         </a>
 
@@ -691,7 +1160,7 @@ function renderWebDashboard(qrDataUrl) {
           <div class="btn-icon-large">📄</div>
           <div class="btn-content">
             <span class="btn-title-main">Скачать в CSV (.csv)</span>
-            <span class="btn-desc-sub">Таблица с разделителями (UTF-8 BOM)</span>
+            <span class="btn-desc-sub">Таблица с разделителями UTF-8</span>
           </div>
         </a>
 
@@ -705,10 +1174,30 @@ function renderWebDashboard(qrDataUrl) {
       </div>
     </div>
 
+    <!-- Filter Pills for Bookings Table -->
+    <div class="filter-pills-bar">
+      <button class="filter-pill active" onclick="setGameFilter('all', this)">
+        🌟 Все игры <span class="pill-badge">${bookings.length}</span>
+      </button>
+      ${activeGames.map((game) => {
+        const matchingCount = bookings.filter(b => {
+          const gTitle = (b.game_title || '').toLowerCase();
+          const target = (game.title || '').toLowerCase();
+          return gTitle.includes(target) || target.includes(gTitle) || (game.dateStr && gTitle.includes(game.dateStr.toLowerCase()));
+        }).length;
+        const shortTitle = game.title.length > 28 ? game.title.slice(0, 26) + '…' : game.title;
+        return `
+          <button class="filter-pill" onclick="setGameFilter('${escapeHtml(game.title)}', this)">
+            🎬 ${escapeHtml(shortTitle)} (${escapeHtml(game.dateStr)}) <span class="pill-badge">${matchingCount}</span>
+          </button>
+        `;
+      }).join('\n')}
+    </div>
+
     <!-- Table Toolbar: Search & Counter -->
     <div class="table-toolbar-card">
       <input type="text" id="searchInput" class="search-input" placeholder="🔍 Быстрый поиск по команде, капитану, телефону..." oninput="filterTable()">
-      <div id="search-count" class="search-counter">Всего записей: ${bookings.length}</div>
+      <div id="search-count" class="search-counter">Показано: ${bookings.length} из ${bookings.length}</div>
     </div>
 
     <!-- Bookings Table -->
@@ -739,15 +1228,72 @@ function renderWebDashboard(qrDataUrl) {
           </tbody>
           <tfoot>
             <tr>
-              <td colspan="3" style="text-align: right; color: var(--accent);">ИТОГО:</td>
-              <td class="cell-center" style="color: var(--accent);">👥 ${totalPlayers} чел.</td>
+              <td colspan="3" style="text-align: right; color: var(--accent);">ИТОГО (показано):</td>
+              <td class="cell-center" style="color: var(--accent);"><span id="footer-players">👥 ${totalPlayers} чел.</span></td>
               <td colspan="4"></td>
-              <td style="color: #fbbf24; font-size: 15px;">${totalRevenue.toLocaleString('ru-RU')} ₸</td>
+              <td style="color: #fbbf24; font-size: 15px;"><span id="footer-sum">${totalRevenue.toLocaleString('ru-RU')} ₸</span></td>
               <td colspan="3"></td>
             </tr>
           </tfoot>
         </table>
       </div>
+    </div>
+  </div>
+
+  <!-- Modal for Fast Manual Booking -->
+  <div id="bookingModal" class="modal-backdrop" style="display: none;" onclick="if(event.target === this) closeBookingModal()">
+    <div class="modal-card">
+      <div class="modal-header">
+        <div class="modal-title">➕ Быстрая регистрация команды</div>
+        <button type="button" class="modal-close" onclick="closeBookingModal()">✕</button>
+      </div>
+      <form id="manualBookingForm" onsubmit="submitBooking(event)">
+        <div class="form-group">
+          <label class="form-label">Название команды <span class="req">*</span></label>
+          <input type="text" id="mTeamName" class="form-input" required placeholder="Например: Акацуки, Томас Шелби">
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Имя капитана <span class="req">*</span></label>
+            <input type="text" id="mCaptainName" class="form-input" required placeholder="Имя капитана">
+          </div>
+          <div class="form-group">
+            <label class="form-label">Телефон (WhatsApp) <span class="req">*</span></label>
+            <input type="tel" id="mCaptainPhone" class="form-input" required placeholder="+7 777 123 45 67">
+          </div>
+        </div>
+        <div class="form-row">
+          <div class="form-group">
+            <label class="form-label">Кол-во участников <span class="req">*</span></label>
+            <select id="mPlayersCount" class="form-input">
+              <option value="2">👥 2 человека</option>
+              <option value="3">👥 3 человека</option>
+              <option value="4">👥 4 человека</option>
+              <option value="5" selected>👥 5 человек (стандарт)</option>
+              <option value="6">👥 6 человек</option>
+              <option value="7">👥 7 человек</option>
+              <option value="8">👥 8 человек</option>
+              <option value="9">👥 9 человек</option>
+              <option value="10">👥 10 человек</option>
+            </select>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Игра <span class="req">*</span></label>
+            <select id="mGameSelect" class="form-input">
+              ${activeGames.map((g) => `<option value="${escapeHtml(g.title)}|${escapeHtml(g.dateStr)}">${escapeHtml(g.title)} (${escapeHtml(g.dateStr)})</option>`).join('\n')}
+            </select>
+          </div>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Примечание / пожелания (необязательно)</label>
+          <input type="text" id="mNotes" class="form-input" placeholder="Например: стол у сцены, день рождения">
+        </div>
+        <div id="modalError" class="modal-error" style="display: none;"></div>
+        <div class="modal-actions">
+          <button type="button" class="btn-cancel" onclick="closeBookingModal()">Отмена</button>
+          <button type="submit" id="mSubmitBtn" class="btn-submit">💾 Зарегистрировать</button>
+        </div>
+      </form>
     </div>
   </div>
 </body>
@@ -802,6 +1348,45 @@ const webServer = http.createServer(async (req, res) => {
         qrDataUrl
       })
     );
+    return;
+  }
+
+  if (url.pathname === '/manifest.json') {
+    const manifest = {
+      name: 'ACTION Киноквиз — Панель',
+      short_name: 'Киноквиз',
+      description: 'Панель управления бронированиями и ботом ACTION Киноквиз Караганда',
+      start_url: '/',
+      display: 'standalone',
+      background_color: '#0b0914',
+      theme_color: '#f59e0b',
+      icons: [
+        {
+          src: '/icon.svg',
+          sizes: '192x192 512x512',
+          type: 'image/svg+xml',
+          purpose: 'any maskable'
+        }
+      ]
+    };
+    res.writeHead(200, { 'Content-Type': 'application/manifest+json; charset=utf-8' });
+    res.end(JSON.stringify(manifest, null, 2));
+    return;
+  }
+
+  if (url.pathname === '/icon.svg') {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128">
+  <defs>
+    <linearGradient id="g" x1="0%" y1="0%" x2="100%" y2="100%">
+      <stop offset="0%" stop-color="#f59e0b" />
+      <stop offset="100%" stop-color="#d97706" />
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="28" fill="url(#g)" />
+  <text x="50%" y="54%" font-size="64" text-anchor="middle" dominant-baseline="middle">🎬</text>
+</svg>`;
+    res.writeHead(200, { 'Content-Type': 'image/svg+xml; charset=utf-8' });
+    res.end(svg);
     return;
   }
 
