@@ -16,7 +16,8 @@
 import makeWASocket, {
   useMultiFileAuthState,
   DisconnectReason,
-  fetchLatestBaileysVersion
+  fetchLatestBaileysVersion,
+  Browsers
 } from '@whiskeysockets/baileys';
 import { Boom } from '@hapi/boom';
 import qrcodeTerminal from 'qrcode-terminal';
@@ -237,18 +238,42 @@ function renderWebDashboard(qrDataUrl) {
     }
   </style>
   <script>
-    // Auto-refresh until connected
-    ${!isConnected ? `
-    setInterval(async () => {
+    async function checkStatusAndQr() {
       try {
-        const res = await fetch('/api/status');
+        const res = await fetch('/api/qr-data');
         const data = await res.json();
         if (data.status === 'connected') {
           window.location.reload();
+          return;
+        }
+        if (data.qrDataUrl) {
+          const img = document.getElementById('qr-img');
+          if (img && img.src !== data.qrDataUrl) {
+            img.src = data.qrDataUrl;
+          }
+          const box = document.getElementById('qr-container');
+          if (box) box.style.display = 'block';
+          const waitBox = document.getElementById('wait-container');
+          if (waitBox) waitBox.style.display = 'none';
         }
       } catch (e) {}
-    }, 3000);
-    ` : ''}
+    }
+
+    async function requestFreshQr() {
+      const btn = document.getElementById('refresh-btn');
+      if (btn) btn.innerText = '⏳ Обновляем...';
+      try {
+        await fetch('/api/restart-auth', { method: 'POST' });
+        setTimeout(async () => {
+          await checkStatusAndQr();
+          if (btn) btn.innerText = '🔄 Получить новый QR-код';
+        }, 3000);
+      } catch (e) {
+        if (btn) btn.innerText = '🔄 Получить новый QR-код';
+      }
+    }
+
+    setInterval(checkStatusAndQr, 4000);
   </script>
 </head>
 <body>
@@ -281,11 +306,12 @@ function renderWebDashboard(qrDataUrl) {
         <span>●</span> Ожидание сканирования QR-кода
       </div>
 
-      ${
-        qrDataUrl
-          ? `
+      <div id="qr-container" style="${qrDataUrl ? 'display:block;' : 'display:none;'}">
         <div class="qr-box">
-          <img src="${qrDataUrl}" alt="WhatsApp QR Code">
+          <img id="qr-img" src="${qrDataUrl || ''}" alt="WhatsApp QR Code">
+        </div>
+        <div style="margin-bottom: 20px;">
+          <button id="refresh-btn" onclick="requestFreshQr()" class="btn btn-outline" style="font-size: 13px; padding: 8px 16px;">🔄 Получить новый QR-код</button>
         </div>
         <div class="instructions">
           <strong>Инструкция для подключения:</strong>
@@ -294,15 +320,17 @@ function renderWebDashboard(qrDataUrl) {
             <li>Перейдите в <b>Настройки</b> ➔ <b>Связанные устройства</b>.</li>
             <li>Нажмите <b>Привязка устройства</b> и наведите камеру на QR-код.</li>
           </ol>
+          <div style="margin-top: 8px; font-size: 12px; color: var(--accent);">
+            ⚠️ <i>WhatsApp QR-код действует 20 секунд. Если телефон пишет «Не удалось привязать» — нажмите кнопку «Получить новый QR-код» выше.</i>
+          </div>
         </div>
-        `
-          : `
-        <div style="padding: 40px; color: var(--muted);">
-          Генерация QR-кода соединения...<br>
-          Пожалуйста, подождите несколько секунд.
-        </div>
-        `
-      }
+      </div>
+
+      <div id="wait-container" style="${qrDataUrl ? 'display:none;' : 'display:block;'} padding: 40px; color: var(--muted);">
+        Генерация свежего QR-кода соединения...<br>
+        Пожалуйста, подождите несколько секунд.<br><br>
+        <button onclick="requestFreshQr()" class="btn btn-outline" style="font-size: 13px; padding: 8px 16px;">🔄 Запустить генерацию</button>
+      </div>
       `
     }
   </div>
@@ -339,6 +367,41 @@ const webServer = http.createServer(async (req, res) => {
         bookingsCount: db.bookings.list({ limit: 1 }).length
       })
     );
+    return;
+  }
+
+  if (url.pathname === '/api/qr-data') {
+    let qrDataUrl = null;
+    if (currentQrCode) {
+      try {
+        qrDataUrl = await QRCode.toDataURL(currentQrCode);
+      } catch (err) {
+        logger.error({ err }, 'Failed to generate QR data URL');
+      }
+    }
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(
+      JSON.stringify({
+        status: isConnected ? 'connected' : currentQrCode ? 'qr_ready' : 'starting',
+        qrDataUrl
+      })
+    );
+    return;
+  }
+
+  if (url.pathname === '/api/restart-auth') {
+    logger.info('Received request for fresh QR code generation');
+    currentQrCode = null;
+    if (currentSock) {
+      try {
+        currentSock.end();
+      } catch (e) {}
+    }
+    setTimeout(() => {
+      startBot().catch((e) => logger.error({ e }, 'Error restarting bot'));
+    }, 1000);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, message: 'Restarting auth...' }));
     return;
   }
 
@@ -383,8 +446,10 @@ async function startBot() {
     logger: pino({ level: 'silent' }), // Suppress internal Baileys noise
     printQRInTerminal: false,
     auth: state,
-    browser: ['ACTION Kinoquiz Bot', 'Chrome', '1.0.0'],
-    syncFullHistory: false
+    browser: Browsers.ubuntu('Chrome'),
+    syncFullHistory: false,
+    connectTimeoutMs: 60000,
+    defaultQueryTimeoutMs: 60000
   });
 
   currentSock = sock;
