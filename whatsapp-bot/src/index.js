@@ -281,24 +281,29 @@ function renderWebDashboard(qrDataUrl) {
     <div class="logo">🎬 ACTION Киноквиз</div>
     <div class="subtitle">Автономный WhatsApp Бот • Караганда</div>
 
+    <div class="stats-grid" style="margin-bottom: 20px;">
+      <div class="stat-card">
+        <div class="stat-val">${bookingsCount}</div>
+        <div class="stat-lbl">Всего броней в базе</div>
+      </div>
+      <div class="stat-card">
+        <div class="stat-val">${contactsCount}</div>
+        <div class="stat-lbl">Капитанов в базе</div>
+      </div>
+    </div>
+
+    <div class="actions" style="margin-bottom: 25px;">
+      <a href="/api/export/csv" class="btn btn-primary" download="bookings.csv" target="_blank">📥 Скачать брони (Excel / CSV)</a>
+    </div>
+
     ${
       isConnected
         ? `
       <div class="status-badge status-connected">
         <span>●</span> Бот успешно подключен: +${botPhone || 'WhatsApp'}
       </div>
-      <div class="stats-grid">
-        <div class="stat-card">
-          <div class="stat-val">${bookingsCount}</div>
-          <div class="stat-lbl">Всего броней</div>
-        </div>
-        <div class="stat-card">
-          <div class="stat-val">${contactsCount}</div>
-          <div class="stat-lbl">Капитанов в базе</div>
-        </div>
-      </div>
-      <div class="actions">
-        <a href="/api/export/csv" class="btn btn-primary" download>📥 Скачать брони (Excel / CSV)</a>
+      <div style="margin-top: 15px; color: var(--muted); font-size: 13px;">
+        Бот активен и автоматически принимает бронирования 24/7.
       </div>
       `
         : `
@@ -390,18 +395,31 @@ const webServer = http.createServer(async (req, res) => {
   }
 
   if (url.pathname === '/api/restart-auth') {
-    logger.info('Received request for fresh QR code generation');
+    logger.info('Received request for fresh QR code generation - clearing auth directory...');
     currentQrCode = null;
+    isConnected = false;
     if (currentSock) {
       try {
         currentSock.end();
       } catch (e) {}
+      currentSock = null;
+    }
+    try {
+      const authDir = path.resolve(config.authDir);
+      if (fs.existsSync(authDir)) {
+        const files = fs.readdirSync(authDir);
+        for (const file of files) {
+          fs.rmSync(path.join(authDir, file), { recursive: true, force: true });
+        }
+      }
+    } catch (err) {
+      logger.error({ err }, 'Failed to clear auth directory in /api/restart-auth');
     }
     setTimeout(() => {
       startBot().catch((e) => logger.error({ e }, 'Error restarting bot'));
     }, 1000);
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify({ ok: true, message: 'Restarting auth...' }));
+    res.end(JSON.stringify({ ok: true, message: 'Cleared credentials and restarting auth...' }));
     return;
   }
 
@@ -410,11 +428,16 @@ const webServer = http.createServer(async (req, res) => {
       const csvContent = await exportBookingsCsv(db);
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 19);
       const filename = `bookings_${timestamp}.csv`;
+      const csvBuffer = Buffer.from(csvContent, 'utf8');
       res.writeHead(200, {
         'Content-Type': 'text/csv; charset=utf-8',
-        'Content-Disposition': `attachment; filename="${filename}"`
+        'Content-Disposition': `attachment; filename="${filename}"`,
+        'Content-Length': csvBuffer.length,
+        'Cache-Control': 'no-cache, no-store, must-revalidate',
+        'Pragma': 'no-cache',
+        'Expires': '0'
       });
-      res.end(csvContent);
+      res.end(csvBuffer);
     } catch (err) {
       res.writeHead(500, { 'Content-Type': 'application/json' });
       res.end(JSON.stringify({ error: err.message }));
@@ -494,18 +517,31 @@ async function startBot() {
         ? lastDisconnect.error.output?.statusCode
         : (lastDisconnect?.error)?.statusCode;
 
-      const shouldReconnect = statusCode !== DisconnectReason.loggedOut;
-      logger.warn({ statusCode, shouldReconnect }, 'WhatsApp connection closed');
+      const isLoggedOut = statusCode === DisconnectReason.loggedOut || statusCode === 401;
+      const shouldReconnect = !isLoggedOut;
+      logger.warn({ statusCode, shouldReconnect, isLoggedOut }, 'WhatsApp connection closed');
 
       if (scheduler && typeof scheduler.stop === 'function') {
         scheduler.stop();
       }
 
-      if (shouldReconnect) {
+      if (isLoggedOut) {
+        logger.warn('WhatsApp session was logged out by user. Clearing auth directory to generate a fresh QR code...');
+        try {
+          if (fs.existsSync(authDir)) {
+            const files = fs.readdirSync(authDir);
+            for (const file of files) {
+              fs.rmSync(path.join(authDir, file), { recursive: true, force: true });
+            }
+          }
+        } catch (clearErr) {
+          logger.error({ clearErr }, 'Failed to clear auth directory on logout');
+        }
+        logger.info('Starting fresh bot session in 2 seconds...');
+        setTimeout(() => startBot(), 2000);
+      } else if (shouldReconnect) {
         logger.info('Reconnecting to WhatsApp in 3 seconds...');
         setTimeout(() => startBot(), 3000);
-      } else {
-        logger.error('WhatsApp session logged out. Clear auth_info_baileys and restart.');
       }
     } else if (connection === 'open') {
       isConnected = true;
