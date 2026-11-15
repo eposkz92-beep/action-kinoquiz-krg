@@ -88,7 +88,8 @@ export function createSecurityManager({
       pathname === '/logo.png' ||
       pathname === '/manifest.json' ||
       pathname === '/api/health' ||
-      pathname === '/api/public/book'
+      pathname === '/api/public/book' ||
+      pathname.startsWith('/.well-known/acme-challenge/')
     ) {
       return true;
     }

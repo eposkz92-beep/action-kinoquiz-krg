@@ -59,6 +59,7 @@ import {
   resolveBroadcastRecipients
 } from './broadcast/manualBroadcast.js';
 import { createSecurityManager, getClientIp } from './security.js';
+import { handleAcmeChallenge, startHttpsServer } from './ssl.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -1799,7 +1800,12 @@ async function restartAuth() {
 }
 
 // 3. Start Lightweight Web Dashboard & Status Server
-const webServer = http.createServer(async (req, res) => {
+async function handleWebRequest(req, res) {
+  // ACME HTTP-01 challenge handler for automatic Let's Encrypt SSL
+  if (handleAcmeChallenge(req, res)) {
+    return;
+  }
+
   // Hardened Security Headers
   res.setHeader('X-Content-Type-Options', 'nosniff');
   res.setHeader('X-Frame-Options', 'DENY');
@@ -2143,7 +2149,7 @@ const webServer = http.createServer(async (req, res) => {
 
         // 3. Send WhatsApp confirmation message directly to captain
         let waSent = false;
-        if (sock && isConnected) {
+        if (currentSock && isConnected) {
           try {
             const captainJid = phoneToJid(normPhone);
             if (captainJid) {
@@ -2165,7 +2171,7 @@ const webServer = http.createServer(async (req, res) => {
                 `_Если изменятся планы или состав команды — просто напишите нам в ответ на это сообщение._`
               ].join('\n');
 
-              await sock.sendMessage(captainJid, { text: confirmationText });
+              await currentSock.sendMessage(captainJid, { text: confirmationText });
               waSent = true;
               logger.info({ captainPhone: normPhone, captainJid, bookingId: booking.id }, 'WhatsApp confirmation sent to captain');
             }
@@ -2290,7 +2296,10 @@ const webServer = http.createServer(async (req, res) => {
 
   res.writeHead(404, { 'Content-Type': 'text/plain' });
   res.end('Not Found');
-});
+}
+
+const webServer = http.createServer(handleWebRequest);
+let httpsServerInstance = null;
 
 /**
  * Automatically pulls latest games and repository changes from GitHub.
@@ -2301,6 +2310,13 @@ async function syncRepositoryGames() {
     const { stdout, stderr } = await execAsync('git pull --ff-only', { cwd: repoDir });
     const output = (stdout || '').trim();
     const hasUpdates = output.includes('Updating') || output.includes('Fast-forward') || output.includes('files changed');
+    if (hasUpdates) {
+      try {
+        await execAsync('npm install --omit=dev', { cwd: botRootDir });
+      } catch (npmErr) {
+        logger.warn({ npmErr: npmErr.message }, 'npm install during sync failed or partial');
+      }
+    }
     logger.info({ stdout: output, stderr: (stderr || '').trim(), hasUpdates }, 'Repository auto-synced from GitHub');
     return { ok: true, output: output || 'Уже обновлено (Already up to date).', hasUpdates };
   } catch (err) {
@@ -2312,6 +2328,18 @@ async function syncRepositoryGames() {
 const host = config.bindHost || '0.0.0.0';
 webServer.listen(config.qrPort, host, () => {
   logger.info(`Web QR & Dashboard running at http://${host}:${config.qrPort} (Password Auth: ACTIVE)`);
+
+  // Initialize and start HTTPS server with automated Let's Encrypt SSL
+  startHttpsServer({
+    requestHandler: handleWebRequest,
+    logger,
+    config,
+    dataDir: path.dirname(config.dbPath)
+  }).then((srv) => {
+    httpsServerInstance = srv;
+  }).catch((httpsErr) => {
+    logger.warn({ httpsErr: httpsErr.message }, 'HTTPS background initialization error');
+  });
 
   // Schedule auto-sync: Nightly at 00:30 (after Instagram sync at 00:00) and every 4 hours
   try {
@@ -2570,6 +2598,12 @@ function shutdown(signal) {
 
   if (webServer) {
     webServer.close();
+  }
+
+  if (httpsServerInstance) {
+    try {
+      httpsServerInstance.close();
+    } catch (e) {}
   }
 
   if (db && typeof db.close === 'function') {
