@@ -125,6 +125,7 @@ function renderWebDashboard(qrDataUrl) {
   const totalRevenue = totalPlayers * pricePerPlayer;
   const venueCapacity = Number(config.quiz?.venueCapacity) || 60;
   const activeGames = getActiveGames();
+  const adminToken = config.security?.adminPassword || 'kinoquiz2026';
 
   // 0. Historical Games Archive
   const archiveData = getGamesArchive(db, config);
@@ -988,11 +989,28 @@ function renderWebDashboard(qrDataUrl) {
   </style>
 
   <script>
+    const ADMIN_TOKEN = '${adminToken}';
+    const ADMIN_AUTH = 'Basic ' + btoa('admin:' + ADMIN_TOKEN);
+
+    function apiFetch(url, options = {}) {
+      const sep = url.includes('?') ? '&' : '?';
+      const fullUrl = url + sep + 'token=' + encodeURIComponent(ADMIN_TOKEN);
+      const headers = {
+        'Authorization': ADMIN_AUTH,
+        ...(options.headers || {})
+      };
+      return fetch(fullUrl, {
+        ...options,
+        credentials: 'include',
+        headers
+      });
+    }
+
     let currentFilter = 'all';
 
     async function checkStatusAndQr() {
       try {
-        const res = await fetch('/api/qr-data');
+        const res = await apiFetch('/api/qr-data');
         const data = await res.json();
         if (data.status === 'connected') {
           const badge = document.getElementById('status-badge');
@@ -1016,7 +1034,7 @@ function renderWebDashboard(qrDataUrl) {
       const btn = document.getElementById('refresh-btn');
       if (btn) btn.innerText = '⏳ Обновляем...';
       try {
-        await fetch('/api/restart-auth', { method: 'POST' });
+        await apiFetch('/api/restart-auth', { method: 'POST' });
         setTimeout(async () => {
           await checkStatusAndQr();
           if (btn) btn.innerText = '🔄 Получить новый QR-код';
@@ -1030,7 +1048,7 @@ function renderWebDashboard(qrDataUrl) {
       const titleSpan = document.getElementById('sync-btn-title');
       if (titleSpan) titleSpan.innerText = '⏳ Синхронизация...';
       try {
-        const res = await fetch('/api/sync-games', { method: 'POST' });
+        const res = await apiFetch('/api/sync-games', { method: 'POST' });
         const data = await res.json();
         if (data.ok) {
           alert('✅ Расписание игр успешно синхронизировано с GitHub!\\n\\n' + (data.message || 'Все игры актуальны.'));
@@ -1050,7 +1068,7 @@ function renderWebDashboard(qrDataUrl) {
       const teamName = row ? (row.querySelector('.team-name')?.innerText || '#' + id) : '#' + id;
       if (!confirm('Удалить бронь команды «' + teamName + '»?')) return;
       try {
-        const res = await fetch('/api/bookings/delete?id=' + id, { method: 'POST' });
+        const res = await apiFetch('/api/bookings/delete?id=' + id, { method: 'POST' });
         const data = await res.json();
         if (data.ok) {
           if (row) {
@@ -1166,7 +1184,7 @@ function renderWebDashboard(qrDataUrl) {
       }
 
       try {
-        const res = await fetch('/api/bookings/create', {
+        const res = await apiFetch('/api/bookings/create', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -1296,7 +1314,7 @@ function renderWebDashboard(qrDataUrl) {
 
     async function refreshBroadcastQueueStatus() {
       try {
-        const res = await fetch('/api/broadcast/status');
+        const res = await apiFetch('/api/broadcast/status');
         const data = await res.json();
         if (data.ok && data.status) {
           const s = data.status;
@@ -1342,7 +1360,7 @@ function renderWebDashboard(qrDataUrl) {
       }
 
       try {
-        const res = await fetch('/api/broadcast/send', {
+        const res = await apiFetch('/api/broadcast/send', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
