@@ -35,7 +35,7 @@ const execAsync = promisify(exec);
 
 import config from './config.js';
 import { initDatabase, normalizePhone } from './db/database.js';
-import { exportBookingsCsv, exportBookingsToCsv, exportBookingsToExcelHtml, escapeHtml } from './db/exportCsv.js';
+import { exportBookingsCsv, exportBookingsToCsv, exportBookingsToExcelHtml, escapeHtml, formatBookingDate } from './db/exportCsv.js';
 import { exportBookingsToGoogleSheets } from './db/exportSheets.js';
 import { getActiveGames } from './games/gameLoader.js';
 import { handleIncomingMessage, FSM_STATES } from './dialog/fsm.js';
@@ -109,7 +109,7 @@ function renderWebDashboard(qrDataUrl) {
     return `
       <tr id="booking-row-${b.id}">
         <td class="cell-center text-muted"><b>${b.id || (i + 1)}</b></td>
-        <td class="cell-date">${escapeHtml(b.created_at || '')}</td>
+        <td class="cell-date">${escapeHtml(formatBookingDate(b.created_at))}</td>
         <td class="cell-team"><span class="team-name">${escapeHtml(b.team_name)}</span></td>
         <td class="cell-center"><span class="players-pill">👥 ${players} чел.</span></td>
         <td class="cell-captain">${escapeHtml(b.captain_name)}</td>

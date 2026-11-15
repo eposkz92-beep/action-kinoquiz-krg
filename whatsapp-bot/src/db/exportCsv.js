@@ -16,6 +16,72 @@ export function escapeCsvField(val) {
 }
 
 /**
+ * Formats a raw database timestamp into a clean, localized date-time string
+ * suitable for display in Excel, CSV, and Web interfaces.
+ * Output format: "DD.MM.YYYY HH:mm" (e.g. "15.11.2026 14:00")
+ * @param {string|Date|number} rawVal
+ * @param {string} [timeZone='Asia/Almaty']
+ * @returns {string}
+ */
+export function formatBookingDate(rawVal, timeZone = 'Asia/Almaty') {
+  if (rawVal === null || rawVal === undefined) return '';
+  const str = String(rawVal).trim();
+  if (!str) return '';
+
+  // If already in DD.MM.YYYY format, return as is
+  if (/^\d{2}\.\d{2}\.\d{4}/.test(str)) {
+    return str;
+  }
+
+  // Handle standard SQLite datetime format: YYYY-MM-DD HH:mm:ss
+  const match = str.match(/^(\d{4})-(\d{2})-(\d{2})(?:[ T](\d{2}):(\d{2})(?::(\d{2}))?)?/);
+  if (match) {
+    const [_, y, mo, d, h = '00', min = '00'] = match;
+    // If explicit UTC timezone indicator is present
+    if (str.endsWith('Z') || /[+-]\d{2}:\d{2}$/.test(str)) {
+      try {
+        const date = new Date(str);
+        if (!isNaN(date.getTime())) {
+          const parts = new Intl.DateTimeFormat('ru-RU', {
+            timeZone,
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit',
+            hour12: false
+          }).formatToParts(date);
+          const p = {};
+          for (const item of parts) p[item.type] = item.value;
+          return `${p.day}.${p.month}.${p.year} ${p.hour}:${p.minute}`;
+        }
+      } catch {}
+    }
+    return `${d}.${mo}.${y} ${h}:${min}`;
+  }
+
+  try {
+    const date = new Date(str);
+    if (!isNaN(date.getTime())) {
+      const parts = new Intl.DateTimeFormat('ru-RU', {
+        timeZone,
+        year: 'numeric',
+        month: '2-digit',
+        day: '2-digit',
+        hour: '2-digit',
+        minute: '2-digit',
+        hour12: false
+      }).formatToParts(date);
+      const p = {};
+      for (const item of parts) p[item.type] = item.value;
+      return `${p.day}.${p.month}.${p.year} ${p.hour}:${p.minute}`;
+    }
+  } catch {}
+
+  return str;
+}
+
+/**
  * Exports bookings to CSV with UTF-8 BOM and RFC 4180 escaping.
  * @param {Object} db - DatabaseSync instance or { db, bookings } DAO
  * @param {string} [outputPath] - Optional file path to write CSV to disk
@@ -60,7 +126,7 @@ export async function exportBookingsCsv(db, outputPath = null, gameTitleFilter =
   for (const r of records) {
     const row = [
       escapeCsvField(r.id),
-      escapeCsvField(r.created_at),
+      escapeCsvField(formatBookingDate(r.created_at) || r.created_at),
       escapeCsvField(r.team_name),
       escapeCsvField(r.captain_name),
       escapeCsvField(r.captain_phone),
@@ -134,17 +200,18 @@ export function exportBookingsToExcelHtml(db, options = {}) {
     const sourceLabel = r.source === 'web' ? 'Сайт' : 'WhatsApp бот';
     const statusLabel = r.status === 'cancelled' ? 'Отменена' : 'Подтверждена';
     const bg = index % 2 === 0 ? '#ffffff' : '#f9fafb';
+    const createdAtFormatted = formatBookingDate(r.created_at);
 
     return `
       <tr style="background-color: ${bg};">
         <td style="text-align: center; border: 1px solid #d1d5db; padding: 8px;">${r.id || (index + 1)}</td>
-        <td style="border: 1px solid #d1d5db; padding: 8px; white-space: nowrap;">${escapeHtml(r.created_at || '')}</td>
+        <td style="text-align: center; border: 1px solid #d1d5db; padding: 8px; mso-number-format:'\\@'; white-space: nowrap;">${escapeHtml(createdAtFormatted)}</td>
         <td style="border: 1px solid #d1d5db; padding: 8px; font-weight: bold; color: #111827;">${escapeHtml(r.team_name || '')}</td>
         <td style="border: 1px solid #d1d5db; padding: 8px;">${escapeHtml(r.captain_name || '')}</td>
         <td style="border: 1px solid #d1d5db; padding: 8px; mso-number-format:'\\@'; white-space: nowrap;">${escapeHtml(r.captain_phone || '')}</td>
         <td style="text-align: center; border: 1px solid #d1d5db; padding: 8px; font-weight: bold;">${players}</td>
         <td style="border: 1px solid #d1d5db; padding: 8px;">${escapeHtml(r.game_title || '')}</td>
-        <td style="border: 1px solid #d1d5db; padding: 8px; white-space: nowrap;">${escapeHtml(r.game_date || '')}</td>
+        <td style="text-align: center; border: 1px solid #d1d5db; padding: 8px; mso-number-format:'\\@'; white-space: nowrap;">${escapeHtml(r.game_date || '')}</td>
         <td style="text-align: right; border: 1px solid #d1d5db; padding: 8px; font-weight: bold; color: #b45309;">${totalSum.toLocaleString('ru-RU')} ₸</td>
         <td style="border: 1px solid #d1d5db; padding: 8px; text-align: center;">${sourceLabel}</td>
         <td style="border: 1px solid #d1d5db; padding: 8px; text-align: center;">${statusLabel}</td>
@@ -189,8 +256,8 @@ export function exportBookingsToExcelHtml(db, options = {}) {
   <table>
     <thead>
       <tr>
-        <th style="width: 40px;">№</th>
-        <th style="width: 140px;">Дата заявки</th>
+        <th style="width: 45px;">№</th>
+        <th style="width: 155px;">Дата заявки</th>
         <th style="width: 180px;">Команда</th>
         <th style="width: 140px;">Капитан</th>
         <th style="width: 150px;">Телефон капитана</th>
