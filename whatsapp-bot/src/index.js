@@ -992,14 +992,15 @@ function renderWebDashboard(qrDataUrl) {
     const ADMIN_TOKEN = '${adminToken}';
     const ADMIN_AUTH = 'Basic ' + btoa('admin:' + ADMIN_TOKEN);
 
-    function apiFetch(url, options = {}) {
-      const sep = url.includes('?') ? '&' : '?';
-      const fullUrl = url + sep + 'token=' + encodeURIComponent(ADMIN_TOKEN);
+    function apiFetch(path, options = {}) {
+      const cleanOrigin = window.location.protocol + '//' + window.location.host;
+      const urlObj = new URL(path, cleanOrigin);
+      urlObj.searchParams.set('token', ADMIN_TOKEN);
       const headers = {
         'Authorization': ADMIN_AUTH,
         ...(options.headers || {})
       };
-      return fetch(fullUrl, {
+      return fetch(urlObj.toString(), {
         ...options,
         credentials: 'include',
         headers
@@ -1086,7 +1087,8 @@ function renderWebDashboard(qrDataUrl) {
           alert('Ошибка при удалении брони: ' + (data.error || 'Не удалось удалить'));
         }
       } catch (e) {
-        alert('Ошибка сети при удалении');
+        console.error('Delete error:', e);
+        alert('Ошибка при удалении: ' + (e?.message || e));
       }
     }
 
