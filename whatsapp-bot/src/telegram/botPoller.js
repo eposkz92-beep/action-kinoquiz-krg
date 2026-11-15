@@ -13,18 +13,15 @@ import { personalizeMessage } from '../broadcast/broadcaster.js';
 import { sendBroadcastLaunchAlert, sendBookingAlert } from './notifier.js';
 
 /**
- * Builds an ASCII/Emoji progress bar
+ * Builds a clean progress percentage
  * @param {number} current
  * @param {number} total
- * @param {number} [barLength=10]
- * @returns {string} e.g. "▓▓▓░░░░░░░ 30%"
+ * @returns {string} e.g. "30%"
  */
-function makeProgressBar(current, total, barLength = 10) {
-  if (total <= 0) return '░'.repeat(barLength) + ' 0%';
+function makeProgressBar(current, total) {
+  if (total <= 0) return '0%';
   const pct = Math.min(100, Math.max(0, Math.round((current / total) * 100)));
-  const filled = Math.min(barLength, Math.round((pct / 100) * barLength));
-  const empty = barLength - filled;
-  return '▓'.repeat(filled) + '░'.repeat(empty) + ` ${pct}%`;
+  return `${pct}%`;
 }
 
 /**
@@ -238,11 +235,12 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames, b
         const players = gameBookings.reduce((sum, b) => sum + (Number(b.players_count) || 0), 0);
         const freeSpots = Math.max(0, venueCapacity - players);
         const freeTables = Math.floor(freeSpots / 6);
-        const bar = makeProgressBar(players, venueCapacity);
+        const pct = Math.min(100, Math.max(0, Math.round((players / venueCapacity) * 100)));
+        const statusIcon = pct >= 95 ? '🔴 Зал полон' : pct >= 65 ? '🟡 Заполняется' : '🟢 Свободно';
 
         gameStatsLines.push(`🎬 <b>«${escapeHtml(g.title)}»</b> (${escapeHtml(g.dateStr)})`);
-        gameStatsLines.push(`   📊 Занято: <b>${players}</b> / ${venueCapacity} мест ${bar}`);
-        gameStatsLines.push(`   🪑 Команд: ${gameBookings.length} • Свободно ~${freeTables} столов (${freeSpots} мест)`);
+        gameStatsLines.push(`   📊 <b>Занято:</b> ${players} из ${venueCapacity} мест (${pct}%) • ${statusIcon}`);
+        gameStatsLines.push(`   🪑 <b>Команд:</b> ${gameBookings.length} • Свободно ~${freeTables} столов (${freeSpots} мест)`);
         gameStatsLines.push('');
       });
 
