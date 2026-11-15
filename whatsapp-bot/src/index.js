@@ -1308,7 +1308,7 @@ const webServer = http.createServer(async (req, res) => {
     let qrDataUrl = null;
     if (currentQrCode) {
       try {
-        qrDataUrl = await QRCode.toDataURL(currentQrCode);
+        qrDataUrl = await QRCode.toDataURL(currentQrCode, { width: 1024, margin: 2 });
       } catch (err) {
         logger.error({ err }, 'Failed to generate QR data URL');
       }
@@ -1336,7 +1336,7 @@ const webServer = http.createServer(async (req, res) => {
     let qrDataUrl = null;
     if (currentQrCode) {
       try {
-        qrDataUrl = await QRCode.toDataURL(currentQrCode);
+        qrDataUrl = await QRCode.toDataURL(currentQrCode, { width: 1024, margin: 2 });
       } catch (err) {
         logger.error({ err }, 'Failed to generate QR data URL');
       }
@@ -1345,10 +1345,47 @@ const webServer = http.createServer(async (req, res) => {
     res.end(
       JSON.stringify({
         status: isConnected ? 'connected' : currentQrCode ? 'qr_ready' : 'starting',
-        qrDataUrl
+        qrDataUrl,
+        rawQr: currentQrCode
       })
     );
     return;
+  }
+
+  if (url.pathname === '/qr.png' || url.pathname === '/api/qr.png') {
+    if (currentQrCode) {
+      try {
+        const qrBuffer = await QRCode.toBuffer(currentQrCode, { width: 1024, margin: 2 });
+        res.writeHead(200, {
+          'Content-Type': 'image/png',
+          'Content-Length': qrBuffer.length,
+          'Cache-Control': 'no-cache, no-store, must-revalidate'
+        });
+        res.end(qrBuffer);
+        return;
+      } catch (err) {
+        logger.error({ err }, 'Failed to generate QR buffer');
+      }
+    }
+    res.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+    res.end('QR-код еще не сгенерирован или WhatsApp уже подключен');
+    return;
+  }
+
+  if (url.pathname === '/avatar.png' || url.pathname === '/logo.png') {
+    try {
+      const avatarPath = path.resolve(botRootDir, '../assets/images/logo-hd.png');
+      if (fs.existsSync(avatarPath)) {
+        const buf = fs.readFileSync(avatarPath);
+        res.writeHead(200, {
+          'Content-Type': 'image/png',
+          'Content-Length': buf.length,
+          'Cache-Control': 'public, max-age=86400'
+        });
+        res.end(buf);
+        return;
+      }
+    } catch (e) {}
   }
 
   if (url.pathname === '/manifest.json') {
