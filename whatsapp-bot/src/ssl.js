@@ -72,7 +72,18 @@ export async function startHttpsServer({ requestHandler, logger, config, dataDir
   const certPath = path.join(sslDir, 'cert.pem');
   const keyPath = path.join(sslDir, 'key.pem');
   const domain = config.sslDomain || '136-71-1-182.sslip.io';
-  const httpsPort = config.httpsPort || 443;
+  const targetPort = config.httpsPort || (process.platform === 'linux' ? 3443 : 443);
+
+  // On Linux, configure iptables redirect 443 -> 3443 if unprivileged
+  if (process.platform === 'linux' && targetPort === 3443) {
+    try {
+      const { execSync } = await import('node:child_process');
+      execSync('sudo -n iptables -t nat -C PREROUTING -p tcp --dport 443 -j REDIRECT --to-port 3443 2>/dev/null || sudo -n iptables -t nat -A PREROUTING -p tcp --dport 443 -j REDIRECT --to-port 3443');
+      logger.info('iptables port 443 -> 3443 redirection verified');
+    } catch (iptErr) {
+      logger.warn({ iptErr: iptErr.message }, 'Failed setting iptables 443->3443 redirect');
+    }
+  }
 
   if (!fs.existsSync(sslDir)) {
     try {
@@ -156,19 +167,19 @@ export async function startHttpsServer({ requestHandler, logger, config, dataDir
     }, requestHandler);
 
     httpsServer.on('error', (srvErr) => {
-      logger.warn({ srvErr: srvErr.message, port: httpsPort }, 'HTTPS server encountered an error (HTTP server continues on port 80)');
+      logger.warn({ srvErr: srvErr.message, port: targetPort }, 'HTTPS server encountered an error (HTTP server continues on port 80)');
     });
 
     await new Promise((resolve) => {
-      httpsServer.listen(httpsPort, '0.0.0.0', () => {
-        logger.info(`🔒 HTTPS Server running at https://${domain}:${httpsPort} (SSL ACTIVE)`);
+      httpsServer.listen(targetPort, '0.0.0.0', () => {
+        logger.info(`🔒 HTTPS Server running at https://${domain}:${targetPort} (routed from port 443, SSL ACTIVE)`);
         resolve(httpsServer);
       });
     });
 
     return httpsServer;
   } catch (listenErr) {
-    logger.warn({ listenErr: listenErr.message, port: httpsPort }, 'Failed to bind HTTPS port 443 (HTTP remains fully operational)');
+    logger.warn({ listenErr: listenErr.message, port: targetPort }, 'Failed to bind HTTPS port (HTTP remains fully operational)');
     return null;
   }
 }
