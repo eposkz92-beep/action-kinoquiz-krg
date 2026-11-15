@@ -2,6 +2,7 @@ import { exportBookingsToXlsxBuffer } from '../db/exportXlsx.js';
 import { escapeHtml } from '../db/exportCsv.js';
 import { getActiveGames } from '../games/gameLoader.js';
 import { getGamesArchive } from '../games/gamesArchive.js';
+import QRCode from 'qrcode';
 import {
   executeManualBroadcast,
   prepareBroadcastTemplate,
@@ -37,7 +38,7 @@ function makeProgressBar(current, total, barLength = 10) {
  * @param {Function} [params.syncRepositoryGames] - Function to trigger GitHub sync
  * @returns {{ stop: Function }} Controller to stop polling
  */
-export function startTelegramPoller({ db, config, logger, syncRepositoryGames, broadcaster }) {
+export function startTelegramPoller({ db, config, logger, syncRepositoryGames, broadcaster, getWhatsAppStatus, restartAuth }) {
   const token = config.telegram?.botToken;
   const targetChatId = String(config.telegram?.chatId || '');
   const venueCapacity = Number(config.quiz?.venueCapacity) || 60; // Max capacity in Karaoke Bar "To Mesto"
@@ -339,6 +340,77 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames, b
     }
   }
 
+  async function sendWhatsAppStatusOrQr(chatId) {
+    const st = typeof getWhatsAppStatus === 'function'
+      ? getWhatsAppStatus()
+      : { isConnected: false, botPhone: null, currentQrCode: null };
+
+    if (st.isConnected) {
+      const text = [
+        '🟢 <b>WHATSAPP ПОДКЛЮЧЕН И РАБОТАЕТ!</b>',
+        '',
+        `📱 <b>Номер бота:</b> +${escapeHtml(st.botPhone || '77011863190')}`,
+        '🤖 <b>Статус:</b> В сети, принимает брони и отправляет рассылки.',
+        '',
+        '<i>Если вы хотите сменить номер или перепривязать WhatsApp заново, нажмите кнопку ниже:</i>'
+      ].join('\n');
+
+      const replyMarkup = {
+        inline_keyboard: [
+          [{ text: '🔄 Сменить номер / Новый QR', callback_data: 'wa_reconnect' }],
+          [{ text: '« В главное меню', callback_data: 'menu' }]
+        ]
+      };
+
+      await sendMessage(chatId, text, { reply_markup: replyMarkup });
+      return;
+    }
+
+    if (st.currentQrCode) {
+      try {
+        const buf = await QRCode.toBuffer(st.currentQrCode, { width: 600, margin: 2 });
+        const formData = new FormData();
+        formData.append('chat_id', chatId);
+        formData.append('caption', [
+          '📱 <b>QR-КОД ДЛЯ ПОДКЛЮЧЕНИЯ WHATSAPP</b>',
+          '',
+          '1. Откройте <b>WhatsApp</b> на телефоне с номером организатора',
+          '2. Перейдите в <b>Связанные устройства</b> → <b>Привязка устройства</b>',
+          '3. Наведите камеру на этот QR-код',
+          '',
+          '⏳ <i>QR-код обновляется автоматически каждые 20–30 секунд.</i>'
+        ].join('\n'));
+        formData.append('parse_mode', 'HTML');
+        formData.append('photo', new Blob([buf], { type: 'image/png' }), 'whatsapp_qr.png');
+
+        const replyMarkup = JSON.stringify({
+          inline_keyboard: [
+            [{ text: '🔄 Обновить QR-код', callback_data: 'wa_qr' }],
+            [{ text: '« В главное меню', callback_data: 'menu' }]
+          ]
+        });
+        formData.append('reply_markup', replyMarkup);
+
+        await fetch(`https://api.telegram.org/bot${token}/sendPhoto`, {
+          method: 'POST',
+          body: formData
+        });
+        return;
+      } catch (err) {
+        logger.error({ err: err.message }, 'Failed to send QR photo to Telegram');
+      }
+    }
+
+    await sendMessage(chatId, '⏳ <b>Генерирую QR-код для подключения WhatsApp...</b>\nПодождите 3–5 секунд и нажмите кнопку «Обновить QR-код».', {
+      reply_markup: {
+        inline_keyboard: [
+          [{ text: '🔄 Обновить QR-код', callback_data: 'wa_qr' }],
+          [{ text: '« В главное меню', callback_data: 'menu' }]
+        ]
+      }
+    });
+  }
+
   async function sendMainMenu(chatId, messageId = null) {
     tgSessions.delete(chatId);
     const games = getActiveGames();
@@ -358,6 +430,14 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames, b
     const shortG1 = g1.title.length > 20 ? g1.title.slice(0, 18) + '…' : g1.title;
     const shortG2 = g2.title.length > 20 ? g2.title.slice(0, 18) + '…' : g2.title;
 
+    const waStatus = typeof getWhatsAppStatus === 'function' ? getWhatsAppStatus() : null;
+    let waLine = '🤖 <b>WhatsApp:</b> 🟢 Подключен (+7 701 186 31 90)';
+    if (waStatus && !waStatus.isConnected) {
+      waLine = '🤖 <b>WhatsApp:</b> 🟡 Требуется привязка QR';
+    } else if (waStatus?.botPhone) {
+      waLine = `🤖 <b>WhatsApp:</b> 🟢 +${escapeHtml(waStatus.botPhone)} (в сети)`;
+    }
+
     const text = [
       '🎬 <b>ACTION Киноквиз Караганда — Панель управления</b>',
       '',
@@ -368,6 +448,7 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames, b
       `   👥 <b>${bGame2.length}</b> команд (${pGame2} чел.)`,
       '',
       `📱 <b>База контактов:</b> ${contactsCount} капитанов`,
+      waLine,
       '',
       '<i>Выберите нужное действие кнопками ниже:</i>'
     ].join('\n');
@@ -383,14 +464,15 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames, b
           { text: '➕ Добавить бронь', callback_data: 'add_start' }
         ],
         [
+          { text: '📱 WhatsApp QR / Статус', callback_data: 'wa_qr' },
+          { text: '📥 Скачать Excel', callback_data: 'excel' }
+        ],
+        [
           { text: `🎬 ${escapeHtml(shortG1)}`, callback_data: 'filter_game_1' },
           { text: `🎌 ${escapeHtml(shortG2)}`, callback_data: 'filter_game_2' }
         ],
         [
           { text: '📜 Архив всех игр', callback_data: 'archive' },
-          { text: '📥 Скачать Excel', callback_data: 'excel' }
-        ],
-        [
           { text: '🔄 Обновить игры с GitHub', callback_data: 'sync' }
         ]
       ]
@@ -1205,6 +1287,8 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames, b
           await handleAddCommand(chatId, args);
         } else if (firstWord === '/broadcast' || firstWord === '/рассылка') {
           await handleBroadcastCommand(chatId, args);
+        } else if (firstWord === '/qr' || lowerText === 'qr' || lowerText === 'кьюар' || lowerText === 'кью ар') {
+          await sendWhatsAppStatusOrQr(chatId);
         } else if (firstWord === '/sync' || firstWord === '/обновить') {
           await handleSync(chatId);
         }
@@ -1219,7 +1303,21 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames, b
 
         await answerCallbackQuery(cq.id);
 
-        if (data === 'stats') {
+        if (data === 'wa_qr') {
+          await sendWhatsAppStatusOrQr(chatId);
+        } else if (data === 'wa_reconnect') {
+          await sendMessage(chatId, '⏳ <b>Сбрасываю старую сессию WhatsApp и создаю новый QR-код...</b>\nПодождите пару секунд, сейчас пришлю свежий QR прямо сюда.');
+          if (typeof restartAuth === 'function') {
+            try {
+              await restartAuth();
+              setTimeout(async () => {
+                await sendWhatsAppStatusOrQr(chatId);
+              }, 3000);
+            } catch (e) {
+              await sendMessage(chatId, '❌ Ошибка при сбросе сессии: ' + escapeHtml(e.message));
+            }
+          }
+        } else if (data === 'stats') {
           await sendStats(chatId);
         } else if (data === 'archive') {
           await sendGamesArchive(chatId);
@@ -1289,6 +1387,7 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames, b
         body: JSON.stringify({
           commands: [
             { command: 'menu', description: 'Панель управления ACTION Киноквиз' },
+            { command: 'qr', description: '📱 Статус WhatsApp и QR-код' },
             { command: 'broadcast', description: '📢 Срочная рассылка (перенос, отмена)' },
             { command: 'archive', description: '📜 Архив и история всех игр' },
             { command: 'stats', description: '📊 Статистика и посадка зала' },

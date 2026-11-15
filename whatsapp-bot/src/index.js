@@ -41,7 +41,7 @@ import { exportBookingsToGoogleSheets } from './db/exportSheets.js';
 import { getActiveGames } from './games/gameLoader.js';
 import { getGamesArchive } from './games/gamesArchive.js';
 import { handleIncomingMessage, FSM_STATES } from './dialog/fsm.js';
-import { sendBookingAlert, sendBroadcastLaunchAlert } from './telegram/notifier.js';
+import { sendBookingAlert, sendBroadcastLaunchAlert, sendTelegramMessage } from './telegram/notifier.js';
 import { startTelegramPoller } from './telegram/botPoller.js';
 import {
   createBroadcaster,
@@ -1772,6 +1772,32 @@ function renderWebDashboard(qrDataUrl) {
 </html>`;
 }
 
+async function restartAuth() {
+  logger.info('Received request for fresh QR code generation - clearing auth directory...');
+  currentQrCode = null;
+  isConnected = false;
+  if (currentSock) {
+    try {
+      currentSock.end();
+    } catch (e) {}
+    currentSock = null;
+  }
+  try {
+    const authDir = path.resolve(config.authDir);
+    if (fs.existsSync(authDir)) {
+      const files = fs.readdirSync(authDir);
+      for (const file of files) {
+        fs.rmSync(path.join(authDir, file), { recursive: true, force: true });
+      }
+    }
+  } catch (err) {
+    logger.error({ err }, 'Failed to clear auth directory in restartAuth');
+  }
+  setTimeout(() => {
+    startBot().catch((e) => logger.error({ e }, 'Error restarting bot'));
+  }, 1000);
+}
+
 // 3. Start Lightweight Web Dashboard & Status Server
 const webServer = http.createServer(async (req, res) => {
   // Hardened Security Headers
@@ -1939,29 +1965,7 @@ const webServer = http.createServer(async (req, res) => {
   }
 
   if (url.pathname === '/api/restart-auth') {
-    logger.info('Received request for fresh QR code generation - clearing auth directory...');
-    currentQrCode = null;
-    isConnected = false;
-    if (currentSock) {
-      try {
-        currentSock.end();
-      } catch (e) {}
-      currentSock = null;
-    }
-    try {
-      const authDir = path.resolve(config.authDir);
-      if (fs.existsSync(authDir)) {
-        const files = fs.readdirSync(authDir);
-        for (const file of files) {
-          fs.rmSync(path.join(authDir, file), { recursive: true, force: true });
-        }
-      }
-    } catch (err) {
-      logger.error({ err }, 'Failed to clear auth directory in /api/restart-auth');
-    }
-    setTimeout(() => {
-      startBot().catch((e) => logger.error({ e }, 'Error restarting bot'));
-    }, 1000);
+    await restartAuth();
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ ok: true, message: 'Cleared credentials and restarting auth...' }));
     return;
@@ -2186,7 +2190,15 @@ webServer.listen(config.qrPort, '0.0.0.0', () => {
   // Start Telegram Bot Poller for direct in-chat management, Excel downloads, and broadcasts
   if (config.telegram?.enabled) {
     try {
-      startTelegramPoller({ db, config, logger, syncRepositoryGames, broadcaster });
+      startTelegramPoller({
+        db,
+        config,
+        logger,
+        syncRepositoryGames,
+        broadcaster,
+        getWhatsAppStatus: () => ({ isConnected, botPhone, currentQrCode }),
+        restartAuth
+      });
       logger.info('Telegram Bot Poller active for @actionquiz_bot');
     } catch (tgPollerErr) {
       logger.warn({ tgPollerErr }, 'Failed to start Telegram Bot Poller');
@@ -2241,6 +2253,32 @@ async function startBot() {
       logger.info('New WhatsApp QR code received! Scan from terminal or web:');
       qrcodeTerminal.generate(qr, { small: true });
       logger.info(`📱 Open in browser: http://localhost:${config.qrPort}`);
+
+      // Auto-send QR to Telegram admin group/chat if configured and not connected
+      if (config.telegram?.enabled && !isConnected) {
+        try {
+          QRCode.toBuffer(qr, { width: 600, margin: 2 }).then(buf => {
+            const formData = new FormData();
+            formData.append('chat_id', config.telegram.chatId);
+            formData.append('caption', [
+              '📱 <b>ТРЕБУЕТСЯ ПРИВЯЗКА WHATSAPP</b>',
+              '',
+              '1. Откройте <b>WhatsApp</b> на телефоне организатора',
+              '2. Перейдите в <b>«Связанные устройства»</b> → <b>«Привязка устройства»</b>',
+              '3. Отсканируйте этот QR-код'
+            ].join('\n'));
+            formData.append('parse_mode', 'HTML');
+            formData.append('photo', new Blob([buf], { type: 'image/png' }), 'whatsapp_qr.png');
+            formData.append('reply_markup', JSON.stringify({
+              inline_keyboard: [[{ text: '🔄 Обновить QR-код', callback_data: 'wa_qr' }]]
+            }));
+            fetch(`https://api.telegram.org/bot${config.telegram.botToken}/sendPhoto`, {
+              method: 'POST',
+              body: formData
+            }).catch(() => {});
+          }).catch(() => {});
+        } catch (e) {}
+      }
     }
 
     if (connection === 'close') {
@@ -2281,6 +2319,10 @@ async function startBot() {
       currentQrCode = null;
       botPhone = sock.user?.id?.split(':')[0]?.split('@')[0] || '';
       logger.info(`🎉 ACTION Kinoquiz WhatsApp Bot connected! Account: +${botPhone}`);
+
+      if (config.telegram?.enabled) {
+        sendTelegramMessage(`🎉 <b>WhatsApp успешно подключен!</b>\n\n📱 Номер: <b>+${botPhone}</b>\n🤖 Бот готов принимать бронирования команд и делать рассылки!`).catch(() => {});
+      }
     }
   });
 
