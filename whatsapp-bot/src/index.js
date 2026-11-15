@@ -41,6 +41,7 @@ import { exportBookingsToGoogleSheets } from './db/exportSheets.js';
 import { getActiveGames } from './games/gameLoader.js';
 import { handleIncomingMessage, FSM_STATES } from './dialog/fsm.js';
 import { sendBookingAlert } from './telegram/notifier.js';
+import { startTelegramPoller } from './telegram/botPoller.js';
 import {
   createBroadcaster,
   isOptOutMessage,
@@ -1008,6 +1009,16 @@ webServer.listen(config.qrPort, '0.0.0.0', () => {
     logger.info('Automated game sync cron jobs initialized (nightly 00:30 + 4-hour interval)');
   } catch (cronErr) {
     logger.warn({ cronErr }, 'Failed to schedule automatic git sync cron');
+  }
+
+  // Start Telegram Bot Poller for direct in-chat management and Excel downloads
+  if (config.telegram?.enabled) {
+    try {
+      startTelegramPoller({ db, config, logger, syncRepositoryGames });
+      logger.info('Telegram Bot Poller active for @actionquiz_bot');
+    } catch (tgPollerErr) {
+      logger.warn({ tgPollerErr }, 'Failed to start Telegram Bot Poller');
+    }
   }
 });
 
