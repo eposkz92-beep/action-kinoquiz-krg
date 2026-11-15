@@ -41,7 +41,7 @@ import { exportBookingsToGoogleSheets } from './db/exportSheets.js';
 import { getActiveGames } from './games/gameLoader.js';
 import { getGamesArchive } from './games/gamesArchive.js';
 import { handleIncomingMessage, FSM_STATES } from './dialog/fsm.js';
-import { sendBookingAlert } from './telegram/notifier.js';
+import { sendBookingAlert, sendBroadcastLaunchAlert } from './telegram/notifier.js';
 import { startTelegramPoller } from './telegram/botPoller.js';
 import {
   createBroadcaster,
@@ -52,6 +52,12 @@ import {
   phoneToJid
 } from './broadcast/broadcaster.js';
 import { initGameDayScheduler } from './broadcast/scheduler.js';
+import {
+  executeManualBroadcast,
+  prepareBroadcastTemplate,
+  BROADCAST_TEMPLATES,
+  resolveBroadcastRecipients
+} from './broadcast/manualBroadcast.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -78,8 +84,25 @@ let currentQrCode = null;
 let isConnected = false;
 let botPhone = null;
 let currentSock = null;
-let broadcaster = null;
 let scheduler = null;
+
+// Initialize persistent Broadcaster with dynamic socket routing
+const broadcaster = createBroadcaster({
+  db,
+  senderFn: async (jid, content) => {
+    if (!currentSock) {
+      throw new Error('WhatsApp bot is not connected (no active session)');
+    }
+    return currentSock.sendMessage(jid, content);
+  },
+  presenceFn: async (presence, jid) => {
+    if (currentSock?.sendPresenceUpdate) {
+      return currentSock.sendPresenceUpdate(presence, jid);
+    }
+  },
+  logger,
+  delayRange: [config.broadcast.minDelayMs, config.broadcast.maxDelayMs]
+});
 
 /**
  * Renders HTML for the QR code and Status Web Interface
@@ -879,6 +902,80 @@ function renderWebDashboard(qrDataUrl) {
     }
     .btn-submit:hover { background: #d97706; transform: translateY(-1px); }
     .btn-submit:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .btn-broadcast-card {
+      background: linear-gradient(135deg, rgba(236, 72, 153, 0.12), rgba(168, 85, 247, 0.18));
+      border: 1px solid rgba(236, 72, 153, 0.35);
+    }
+    .btn-broadcast-card:hover {
+      background: linear-gradient(135deg, rgba(236, 72, 153, 0.22), rgba(168, 85, 247, 0.28));
+      border-color: #ec4899;
+      transform: translateY(-2px);
+      box-shadow: 0 6px 20px rgba(236, 72, 153, 0.25);
+    }
+    .btn-broadcast-card .btn-title-main { color: #f472b6; }
+
+    .modal-card-lg {
+      max-width: 680px;
+      width: 95%;
+    }
+    .type-pill-selector {
+      display: flex;
+      gap: 8px;
+      margin-bottom: 16px;
+      background: rgba(0,0,0,0.25);
+      padding: 6px;
+      border-radius: 12px;
+    }
+    .type-pill {
+      flex: 1;
+      text-align: center;
+      padding: 9px 12px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-weight: 700;
+      font-size: 13px;
+      color: var(--muted);
+      border: 1px solid transparent;
+      transition: all 0.2s ease;
+      background: transparent;
+    }
+    .type-pill:hover {
+      color: #fff;
+      background: rgba(255,255,255,0.05);
+    }
+    .type-pill.active {
+      background: var(--accent);
+      color: #0b0914;
+      border-color: var(--accent);
+      box-shadow: 0 2px 8px rgba(245, 158, 11, 0.3);
+    }
+    .preview-box {
+      background: #0d0a1a;
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 10px;
+      padding: 14px;
+      font-family: monospace;
+      font-size: 12.5px;
+      line-height: 1.5;
+      color: #e2e8f0;
+      white-space: pre-wrap;
+      max-height: 190px;
+      overflow-y: auto;
+      margin-top: 8px;
+    }
+    .queue-status-banner {
+      background: rgba(59, 130, 246, 0.12);
+      border: 1px solid rgba(59, 130, 246, 0.3);
+      border-radius: 8px;
+      padding: 10px 14px;
+      font-size: 12.5px;
+      color: #93c5fd;
+      margin-bottom: 16px;
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+    }
   </style>
 
   <script>
@@ -1088,6 +1185,180 @@ function renderWebDashboard(qrDataUrl) {
       }
     }
 
+    let selectedBcType = 'reschedule';
+
+    function openBroadcastModal() {
+      const modal = document.getElementById('broadcastModal');
+      if (modal) {
+        modal.style.display = 'flex';
+        updateBroadcastFields();
+        refreshBroadcastQueueStatus();
+      }
+    }
+
+    function closeBroadcastModal() {
+      const modal = document.getElementById('broadcastModal');
+      if (modal) modal.style.display = 'none';
+      const errEl = document.getElementById('bcError');
+      if (errEl) errEl.style.display = 'none';
+    }
+
+    function setBroadcastType(type, btnEl) {
+      selectedBcType = type;
+      document.querySelectorAll('.type-pill').forEach(b => b.classList.remove('active'));
+      if (btnEl) btnEl.classList.add('active');
+      updateBroadcastFields();
+    }
+
+    function updateBroadcastFields() {
+      const resched = document.getElementById('bcRescheduleFields');
+      const cancel = document.getElementById('bcCancelFields');
+      const custom = document.getElementById('bcCustomFields');
+
+      if (resched) resched.style.display = selectedBcType === 'reschedule' ? 'block' : 'none';
+      if (cancel) cancel.style.display = selectedBcType === 'cancel' ? 'block' : 'none';
+      if (custom) custom.style.display = selectedBcType === 'custom' ? 'block' : 'none';
+
+      updateBroadcastPreview();
+    }
+
+    function updateBroadcastPreview() {
+      const previewEl = document.getElementById('bcLivePreview');
+      if (!previewEl) return;
+
+      const targetSelect = document.getElementById('bcTargetSelect');
+      const selectedOption = targetSelect ? targetSelect.options[targetSelect.selectedIndex] : null;
+      let gameName = 'Киномарафон: 100 вопросов';
+      let gameDate = '17 ноября';
+
+      if (selectedOption && selectedOption.value.startsWith('game_')) {
+        const parts = selectedOption.value.split('|');
+        if (parts[1]) gameName = parts[1];
+        if (parts[2]) gameDate = parts[2];
+      }
+
+      let text = '';
+      if (selectedBcType === 'reschedule') {
+        const newDate = document.getElementById('bcNewDate')?.value || '20 ноября (среда)';
+        const newTime = document.getElementById('bcNewTime')?.value || '19:30';
+        const reason = document.getElementById('bcRescheduleReason')?.value || 'Технические работы в зале';
+        text = '⚠️ *ACTION КИНОКВИЗ — ПЕРЕНОС ИГРЫ!*\n\n' +
+          'Приветствуем, Алексей!\n' +
+          'Сообщаем об изменении даты/времени проведения игры *«' + gameName + '»*:\n\n' +
+          '📅 *Новая дата:* ' + newDate + '\n' +
+          '⏰ *Время сбора:* ' + newTime + '\n' +
+          '📍 *Место:* Караоке-бар «То Место» (пр. Нуркена Абдирова, 5)\n' +
+          '📌 *Причина:* ' + reason + '\n\n' +
+          'Бронь команды *«ДНК»* (6 чел.) автоматически сохранена за вами!\n' +
+          'Если вашей команде не подходит новое время, просто напишите нам в ответном сообщении.\n\n' +
+          'Приносим извинения за неудобства и ждём вас на игре! 🎬✨';
+      } else if (selectedBcType === 'cancel') {
+        const reason = document.getElementById('bcCancelReason')?.value || 'Форс-мажорные обстоятельства площадки';
+        text = '❌ *ACTION КИНОКВИЗ — ОТМЕНА ИГРЫ*\n\n' +
+          'Здравствуйте, Алексей!\n' +
+          'К сожалению, игра *«' + gameName + '»* (' + gameDate + ') отменяется.\n' +
+          '📌 *Причина:* ' + reason + '\n\n' +
+          'Бронь команды *«ДНК»* аннулирована. Все внесенные предоплаты (если были) будут возвращены в полном объеме.\n\n' +
+          'Будем искренне рады видеть команду *«ДНК»* на наших следующих играх! Расписание квизов доступно на сайте и в боте.\n\n' +
+          'Приносим искренние извинения за доставленные неудобства! 🙏🎬';
+      } else {
+        const customText = document.getElementById('bcCustomText')?.value || 'Напоминаем, что сбор команд начинается за 30 минут до старта! Ждём вас в баре «То Место».';
+        text = '📢 *ACTION КИНОКВИЗ — ВАЖНОЕ СООБЩЕНИЕ*\n\n' +
+          'Здравствуйте, Алексей (команда *«ДНК»*)!\n\n' +
+          customText + '\n\n' +
+          '📍 Караоке-бар «То Место», пр. Нуркена Абдирова, 5\n' +
+          'Организаторы ACTION Киноквиз Караганда 🎬';
+      }
+
+      previewEl.innerText = text;
+    }
+
+    async function refreshBroadcastQueueStatus() {
+      try {
+        const res = await fetch('/api/broadcast/status');
+        const data = await res.json();
+        if (data.ok && data.status) {
+          const s = data.status;
+          const statusEl = document.getElementById('bcQueueStatusText');
+          if (statusEl) {
+            statusEl.innerText = 'Очередь: ' + s.queueLength + ' | Отправлено: ' + s.sentCount + ' | Ошибок: ' + s.failedCount + ' | Пропущено: ' + s.skippedCount;
+          }
+        }
+      } catch (e) {}
+    }
+
+    async function submitBroadcast(event) {
+      event.preventDefault();
+      const errEl = document.getElementById('bcError');
+      const submitBtn = document.getElementById('bcSubmitBtn');
+      if (errEl) errEl.style.display = 'none';
+
+      const targetVal = document.getElementById('bcTargetSelect')?.value || 'all';
+      let target = 'all';
+      let gameTitle = '';
+      let gameDate = '';
+
+      if (targetVal.startsWith('game_')) {
+        target = 'game';
+        const parts = targetVal.split('|');
+        gameTitle = parts[1] || '';
+        gameDate = parts[2] || '';
+      }
+
+      const newDate = document.getElementById('bcNewDate')?.value || '';
+      const newTime = document.getElementById('bcNewTime')?.value || '19:30';
+      const reason = (selectedBcType === 'reschedule' ? document.getElementById('bcRescheduleReason')?.value : document.getElementById('bcCancelReason')?.value) || '';
+      const customText = document.getElementById('bcCustomText')?.value || '';
+
+      const targetDesc = target === 'game' ? 'командам игры «' + gameTitle + '»' : 'ВСЕЙ базе контактов';
+      if (!confirm('Вы действительно хотите запустить рассылку в WhatsApp (' + targetDesc + ')?')) {
+        return;
+      }
+
+      if (submitBtn) {
+        submitBtn.disabled = true;
+        submitBtn.innerText = '⏳ Запуск...';
+      }
+
+      try {
+        const res = await fetch('/api/broadcast/send', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            type: selectedBcType,
+            target,
+            gameTitle,
+            gameDate,
+            newDate,
+            newTime,
+            reason,
+            customText
+          })
+        });
+
+        const data = await res.json();
+        if (data.ok) {
+          alert('✅ Рассылка успешно поставлена в очередь!\n\n👥 Получателей: ' + (data.queuedCount || 0) + '\n🆔 ID пакета: ' + (data.batchId || 'N/A') + '\n\nСообщения отправляются с интервалом 3–7 секунд для защиты от бана.');
+          closeBroadcastModal();
+        } else {
+          if (errEl) {
+            errEl.innerText = 'Ошибка: ' + (data.error || 'Не удалось запустить рассылку');
+            errEl.style.display = 'block';
+          }
+        }
+      } catch (err) {
+        if (errEl) {
+          errEl.innerText = 'Ошибка сети при запуске рассылки';
+          errEl.style.display = 'block';
+        }
+      } finally {
+        if (submitBtn) {
+          submitBtn.disabled = false;
+          submitBtn.innerText = '🚀 Запустить рассылку';
+        }
+      }
+    }
+
     setInterval(checkStatusAndQr, 4000);
   </script>
 </head>
@@ -1184,6 +1455,14 @@ function renderWebDashboard(qrDataUrl) {
           <div class="btn-content">
             <span class="btn-title-main">Добавить бронь</span>
             <span class="btn-desc-sub">Быстрая регистрация команды</span>
+          </div>
+        </button>
+
+        <button onclick="openBroadcastModal()" class="export-action-btn btn-broadcast-card">
+          <div class="btn-icon-large">📢</div>
+          <div class="btn-content">
+            <span class="btn-title-main">Срочная рассылка</span>
+            <span class="btn-desc-sub">Перенос, отмена, объявления</span>
           </div>
         </button>
 
@@ -1389,6 +1668,95 @@ function renderWebDashboard(qrDataUrl) {
         <div class="modal-actions">
           <button type="button" class="btn-cancel" onclick="closeBookingModal()">Отмена</button>
           <button type="submit" id="mSubmitBtn" class="btn-submit">💾 Зарегистрировать</button>
+        </div>
+      </form>
+    </div>
+  </div>
+
+  <!-- Modal for Urgent Broadcast -->
+  <div id="broadcastModal" class="modal-backdrop" style="display: none;" onclick="if(event.target === this) closeBroadcastModal()">
+    <div class="modal-card modal-card-lg">
+      <div class="modal-header">
+        <div class="modal-title">📢 Срочная рассылка в WhatsApp</div>
+        <button type="button" class="modal-close" onclick="closeBroadcastModal()">✕</button>
+      </div>
+
+      <div class="queue-status-banner">
+        <div>
+          <span>🛡️ <b>Защита от бана:</b> Очередь FIFO с задержкой 3–7 сек + симуляция набора текста</span>
+          <div id="bcQueueStatusText" style="font-size: 11.5px; opacity: 0.85; margin-top: 2px;">Очередь: 0 | Отправлено: 0</div>
+        </div>
+        <button type="button" onclick="refreshBroadcastQueueStatus()" class="btn-cancel" style="padding: 4px 10px; font-size: 11.5px;">🔄</button>
+      </div>
+
+      <div id="bcError" class="modal-error" style="display: none;"></div>
+
+      <form id="broadcastForm" onsubmit="submitBroadcast(event)">
+        <div class="form-group">
+          <label class="form-label">Тип рассылки <span class="req">*</span></label>
+          <div class="type-pill-selector">
+            <button type="button" class="type-pill active" onclick="setBroadcastType('reschedule', this)">⚠️ Перенос игры</button>
+            <button type="button" class="type-pill" onclick="setBroadcastType('cancel', this)">❌ Отмена игры</button>
+            <button type="button" class="type-pill" onclick="setBroadcastType('custom', this)">📢 Объявление</button>
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label">Целевая аудитория (кому отправлять) <span class="req">*</span></label>
+          <select id="bcTargetSelect" class="form-input" onchange="updateBroadcastPreview()">
+            ${activeGames.map((game, i) => {
+              const count = bookings.filter(b => b.status !== 'cancelled' && (b.game_title || '').includes(game.title)).length;
+              return `<option value="game_${i}|${escapeHtml(game.title)}|${escapeHtml(game.dateStr)}">🎯 Записанные на: ${escapeHtml(game.title)} (${escapeHtml(game.dateStr)}) — ${count} ком.</option>`;
+            }).join('\n')}
+            <option value="all">👥 Все подписанные контакты из базы (${contactsCount} капитанов)</option>
+          </select>
+          <div class="form-help">При переносе или отмене рекомендуется выбирать только зарегистрированных на эту игру!</div>
+        </div>
+
+        <!-- Fields for Reschedule -->
+        <div id="bcRescheduleFields">
+          <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px;">
+            <div class="form-group">
+              <label class="form-label">Новая дата <span class="req">*</span></label>
+              <input type="text" id="bcNewDate" class="form-input" placeholder="Например: 20 ноября (среда)" oninput="updateBroadcastPreview()">
+            </div>
+            <div class="form-group">
+              <label class="form-label">Новое время</label>
+              <input type="text" id="bcNewTime" class="form-input" value="19:30" placeholder="19:30" oninput="updateBroadcastPreview()">
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label">Причина переноса</label>
+            <input type="text" id="bcRescheduleReason" class="form-input" placeholder="Например: Технические работы в зале" oninput="updateBroadcastPreview()">
+          </div>
+        </div>
+
+        <!-- Fields for Cancellation -->
+        <div id="bcCancelFields" style="display: none;">
+          <div class="form-group">
+            <label class="form-label">Причина отмены</label>
+            <input type="text" id="bcCancelReason" class="form-input" placeholder="Например: Форс-мажорные обстоятельства площадки" oninput="updateBroadcastPreview()">
+          </div>
+        </div>
+
+        <!-- Fields for Custom Announcement -->
+        <div id="bcCustomFields" style="display: none;">
+          <div class="form-group">
+            <label class="form-label">Текст сообщения <span class="req">*</span></label>
+            <textarea id="bcCustomText" class="form-input" rows="4" placeholder="Введите текст сообщения для участников..." oninput="updateBroadcastPreview()"></textarea>
+          </div>
+        </div>
+
+        <!-- Live Preview -->
+        <div class="form-group" style="margin-top: 14px;">
+          <label class="form-label">👁️ Превью отправляемого сообщения в WhatsApp:</label>
+          <div id="bcLivePreview" class="preview-box"></div>
+          <div class="form-help">Переменные <code>{{captain}}</code>, <code>{{team}}</code>, <code>{{game}}</code> подставляются индивидуально для каждого получателя.</div>
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" class="btn-cancel" onclick="closeBroadcastModal()">Отмена</button>
+          <button type="submit" id="bcSubmitBtn" class="btn-submit">🚀 Запустить рассылку</button>
         </div>
       </form>
     </div>
@@ -1697,6 +2065,45 @@ const webServer = http.createServer(async (req, res) => {
     return;
   }
 
+  if (url.pathname === '/api/broadcast/status' && req.method === 'GET') {
+    const status = broadcaster ? broadcaster.getStatus() : { queueLength: 0, isRunning: false };
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, status }));
+    return;
+  }
+
+  if (url.pathname === '/api/broadcast/send' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', async () => {
+      try {
+        const payload = JSON.parse(body || '{}');
+        const result = await executeManualBroadcast({
+          db,
+          broadcaster,
+          type: payload.type || 'custom',
+          target: payload.target || 'game',
+          gameTitle: payload.gameTitle || '',
+          gameDate: payload.gameDate || '',
+          customText: payload.customText || '',
+          newDate: payload.newDate || '',
+          newTime: payload.newTime || '19:30',
+          reason: payload.reason || '',
+          overrideTemplate: payload.overrideTemplate || null,
+          telegramAlertFn: (alertData) => sendBroadcastLaunchAlert(alertData)
+        });
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify(result));
+      } catch (err) {
+        logger.error({ err }, 'Error in /api/broadcast/send');
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: err.message }));
+      }
+    });
+    return;
+  }
+
   res.writeHead(404, { 'Content-Type': 'text/plain' });
   res.end('Not Found');
 });
@@ -1737,10 +2144,10 @@ webServer.listen(config.qrPort, '0.0.0.0', () => {
     logger.warn({ cronErr }, 'Failed to schedule automatic git sync cron');
   }
 
-  // Start Telegram Bot Poller for direct in-chat management and Excel downloads
+  // Start Telegram Bot Poller for direct in-chat management, Excel downloads, and broadcasts
   if (config.telegram?.enabled) {
     try {
-      startTelegramPoller({ db, config, logger, syncRepositoryGames });
+      startTelegramPoller({ db, config, logger, syncRepositoryGames, broadcaster });
       logger.info('Telegram Bot Poller active for @actionquiz_bot');
     } catch (tgPollerErr) {
       logger.warn({ tgPollerErr }, 'Failed to start Telegram Bot Poller');
@@ -1771,14 +2178,6 @@ async function startBot() {
   });
 
   currentSock = sock;
-
-  // Initialize Broadcaster with the active socket
-  broadcaster = createBroadcaster({
-    db,
-    sock,
-    logger,
-    delayRange: [config.broadcast.minDelayMs, config.broadcast.maxDelayMs]
-  });
 
   // Initialize Tuesday Game-Day Scheduler
   scheduler = await initGameDayScheduler({

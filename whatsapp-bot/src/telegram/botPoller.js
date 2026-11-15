@@ -2,6 +2,8 @@ import { exportBookingsToXlsxBuffer } from '../db/exportXlsx.js';
 import { escapeHtml } from '../db/exportCsv.js';
 import { getActiveGames } from '../games/gameLoader.js';
 import { getGamesArchive } from '../games/gamesArchive.js';
+import { executeManualBroadcast } from '../broadcast/manualBroadcast.js';
+import { sendBroadcastLaunchAlert } from './notifier.js';
 
 /**
  * Builds an ASCII/Emoji progress bar
@@ -29,7 +31,7 @@ function makeProgressBar(current, total, barLength = 10) {
  * @param {Function} [params.syncRepositoryGames] - Function to trigger GitHub sync
  * @returns {{ stop: Function }} Controller to stop polling
  */
-export function startTelegramPoller({ db, config, logger, syncRepositoryGames }) {
+export function startTelegramPoller({ db, config, logger, syncRepositoryGames, broadcaster }) {
   const token = config.telegram?.botToken;
   const targetChatId = String(config.telegram?.chatId || '');
   const venueCapacity = Number(config.quiz?.venueCapacity) || 60; // Max capacity in Karaoke Bar "To Mesto"
@@ -313,12 +315,239 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames })
         ],
         [
           { text: '➕ Быстрая бронь', callback_data: 'help_add' },
+          { text: '📢 Срочная рассылка', callback_data: 'bc_menu' }
+        ],
+        [
           { text: '🔄 Обновить игры с GitHub', callback_data: 'sync' }
         ]
       ]
     };
 
     await sendMessage(chatId, text, { reply_markup: replyMarkup });
+  }
+
+  async function sendBroadcastMenu(chatId) {
+    const games = getActiveGames();
+    const g1 = games[0] ? games[0].title : 'Киномарафон: 100 вопросов';
+    const g2 = games[1] ? games[1].title : 'Культовые Аниме';
+
+    const text = [
+      '📢 <b>СРОЧНЫЕ РАССЫЛКИ WHATSAPP (АНТИ-СПАМ)</b>',
+      '',
+      'Отправляйте уведомления только целевой аудитории:',
+      '',
+      '⚠️ <b>1. Перенос игры:</b>',
+      '<code>/broadcast reschedule НомерИгры, НоваяДата, НовоеВремя, Причина</code>',
+      '<i>Пример:</i> <code>/broadcast reschedule 1, 20 ноября, 19:45, Замена оборудования</code>',
+      '',
+      '❌ <b>2. Отмена игры:</b>',
+      '<code>/broadcast cancel НомерИгры, Причина</code>',
+      '<i>Пример:</i> <code>/broadcast cancel 1, Форс-мажор на площадке</code>',
+      '',
+      '📢 <b>3. Срочное объявление всей базе контактов:</b>',
+      '<code>/broadcast all Текст сообщения</code>',
+      '',
+      '👉 <b>Номера активных игр:</b>',
+      `1 = ${escapeHtml(g1)}`,
+      `2 = ${escapeHtml(g2)}`,
+      '',
+      '<i>💡 Все сообщения отправляются в очередь FIFO с задержкой 3–7 сек для защиты номера от бана. Рассылку также можно запустить прямо в веб-интерфейсе!</i>'
+    ].join('\n');
+
+    const replyMarkup = {
+      inline_keyboard: [
+        [
+          { text: '📊 Статус очереди рассылки', callback_data: 'bc_status' },
+          { text: '« В главное меню', callback_data: 'menu' }
+        ]
+      ]
+    };
+
+    await sendMessage(chatId, text, { reply_markup: replyMarkup });
+  }
+
+  async function sendBroadcastStatus(chatId) {
+    if (!broadcaster || typeof broadcaster.getStatus !== 'function') {
+      await sendMessage(chatId, 'ℹ️ Сервис рассылки еще инициализируется или временно недоступен.');
+      return;
+    }
+
+    const s = broadcaster.getStatus();
+    const logsCount = db?.broadcastLogs ? db.broadcastLogs.listAll(100).length : 0;
+
+    const text = [
+      '📊 <b>СТАТУС СИСТЕМЫ РАССЫЛКИ WHATSAPP</b>',
+      '',
+      `⏳ <b>Сообщений в очереди:</b> ${s.queueLength}`,
+      `🔄 <b>Статус воркера:</b> ${s.isRunning ? '🟢 Активен (отправка)' : '⚪ Ожидание заданий'}`,
+      `✅ <b>Успешно отправлено:</b> ${s.sentCount}`,
+      `❌ <b>Ошибок отправки:</b> ${s.failedCount}`,
+      `🚫 <b>Пропущено (отписались «СТОП»):</b> ${s.skippedCount}`,
+      `📦 <b>Всего обработано за сессию:</b> ${s.processedCount}`,
+      `📜 <b>Записей в журнале SQLite:</b> ${logsCount}`,
+      '',
+      '<i>Защита от бана: пауза 3–7 сек между номерами + симуляция набора текста.</i>'
+    ].join('\n');
+
+    const replyMarkup = {
+      inline_keyboard: [
+        [
+          { text: '🔄 Обновить статус', callback_data: 'bc_status' },
+          { text: '📢 Меню рассылки', callback_data: 'bc_menu' }
+        ]
+      ]
+    };
+
+    await sendMessage(chatId, text, { reply_markup: replyMarkup });
+  }
+
+  async function handleBroadcastCommand(chatId, argsStr) {
+    if (!argsStr || !argsStr.trim()) {
+      await sendBroadcastMenu(chatId);
+      return;
+    }
+
+    const parts = argsStr.trim().split(/\s+/);
+    const subCmd = parts[0].toLowerCase();
+    const rest = argsStr.trim().slice(subCmd.length).trim();
+
+    if (subCmd === 'status' || subCmd === 'статус') {
+      await sendBroadcastStatus(chatId);
+      return;
+    }
+
+    const games = getActiveGames();
+
+    if (subCmd === 'cancel' || subCmd === 'отмена') {
+      const csvParts = rest.split(',').map(s => s.trim());
+      if (csvParts.length < 1 || !csvParts[0]) {
+        await sendMessage(chatId, '⚠️ Укажите номер игры и причину:\n<code>/broadcast cancel НомерИгры, Причина</code>');
+        return;
+      }
+
+      const gameChoice = csvParts[0];
+      const reason = csvParts.slice(1).join(', ') || 'Форс-мажорные обстоятельства';
+      let chosenGame = games[0];
+      if (gameChoice === '2' && games[1]) chosenGame = games[1];
+      else if (gameChoice.length > 2) {
+        const found = games.find(g => g.title.toLowerCase().includes(gameChoice.toLowerCase()));
+        if (found) chosenGame = found;
+      }
+
+      if (!chosenGame) {
+        await sendMessage(chatId, '❌ Игра не найдена в расписании.');
+        return;
+      }
+
+      await sendMessage(chatId, `⏳ Формирую рассылку об отмене игры «${escapeHtml(chosenGame.title)}»...`);
+
+      try {
+        const res = await executeManualBroadcast({
+          db,
+          broadcaster,
+          type: 'cancel',
+          target: 'game',
+          gameTitle: chosenGame.title,
+          gameDate: chosenGame.dateStr,
+          reason,
+          telegramAlertFn: (payload) => sendBroadcastLaunchAlert(payload)
+        });
+
+        if (res.queuedCount === 0) {
+          await sendMessage(chatId, `ℹ️ На игру «${escapeHtml(chosenGame.title)}» нет активных зарегистрированных команд.`);
+        } else {
+          await sendMessage(chatId, `✅ <b>Рассылка об отмене запущена!</b>\n👥 Получателей: <b>${res.queuedCount}</b> команд\n🆔 ID: <code>${res.batchId}</code>`);
+        }
+      } catch (err) {
+        logger.error({ err }, 'Broadcast cancel error');
+        await sendMessage(chatId, `❌ Ошибка запуска рассылки: ${escapeHtml(err.message)}`);
+      }
+      return;
+    }
+
+    if (subCmd === 'reschedule' || subCmd === 'перенос') {
+      const csvParts = rest.split(',').map(s => s.trim());
+      if (csvParts.length < 2) {
+        await sendMessage(chatId, '⚠️ Укажите параметры переноса:\n<code>/broadcast reschedule НомерИгры, НоваяДата, [НовоеВремя], [Причина]</code>');
+        return;
+      }
+
+      const gameChoice = csvParts[0];
+      const newDate = csvParts[1];
+      const newTime = csvParts[2] && csvParts[2].includes(':') ? csvParts[2] : '19:30';
+      const reason = (csvParts[2] && !csvParts[2].includes(':') ? csvParts.slice(2).join(', ') : csvParts.slice(3).join(', ')) || '';
+
+      let chosenGame = games[0];
+      if (gameChoice === '2' && games[1]) chosenGame = games[1];
+      else if (gameChoice.length > 2) {
+        const found = games.find(g => g.title.toLowerCase().includes(gameChoice.toLowerCase()));
+        if (found) chosenGame = found;
+      }
+
+      if (!chosenGame) {
+        await sendMessage(chatId, '❌ Игра не найдена в расписании.');
+        return;
+      }
+
+      await sendMessage(chatId, `⏳ Формирую рассылку о переносе игры «${escapeHtml(chosenGame.title)}» на ${escapeHtml(newDate)}...`);
+
+      try {
+        const res = await executeManualBroadcast({
+          db,
+          broadcaster,
+          type: 'reschedule',
+          target: 'game',
+          gameTitle: chosenGame.title,
+          gameDate: chosenGame.dateStr,
+          newDate,
+          newTime,
+          reason,
+          telegramAlertFn: (payload) => sendBroadcastLaunchAlert(payload)
+        });
+
+        if (res.queuedCount === 0) {
+          await sendMessage(chatId, `ℹ️ На игру «${escapeHtml(chosenGame.title)}» нет активных зарегистрированных команд.`);
+        } else {
+          await sendMessage(chatId, `✅ <b>Рассылка о переносе запущена!</b>\n👥 Получателей: <b>${res.queuedCount}</b> команд\n📅 Новая дата: ${escapeHtml(newDate)} (${escapeHtml(newTime)})\n🆔 ID: <code>${res.batchId}</code>`);
+        }
+      } catch (err) {
+        logger.error({ err }, 'Broadcast reschedule error');
+        await sendMessage(chatId, `❌ Ошибка запуска рассылки: ${escapeHtml(err.message)}`);
+      }
+      return;
+    }
+
+    if (subCmd === 'all' || subCmd === 'все') {
+      if (!rest) {
+        await sendMessage(chatId, '⚠️ Укажите текст объявления:\n<code>/broadcast all Текст вашего сообщения</code>');
+        return;
+      }
+
+      await sendMessage(chatId, `⏳ Формирую рассылку по всей базе контактов...`);
+
+      try {
+        const res = await executeManualBroadcast({
+          db,
+          broadcaster,
+          type: 'custom',
+          target: 'all',
+          customText: rest,
+          telegramAlertFn: (payload) => sendBroadcastLaunchAlert(payload)
+        });
+
+        if (res.queuedCount === 0) {
+          await sendMessage(chatId, `ℹ️ В базе нет подписанных контактов.`);
+        } else {
+          await sendMessage(chatId, `✅ <b>Срочное объявление отправлено в очередь!</b>\n👥 Получателей: <b>${res.queuedCount}</b> чел.\n🆔 ID: <code>${res.batchId}</code>`);
+        }
+      } catch (err) {
+        logger.error({ err }, 'Broadcast all error');
+        await sendMessage(chatId, `❌ Ошибка: ${escapeHtml(err.message)}`);
+      }
+      return;
+    }
+
+    await sendBroadcastMenu(chatId);
   }
 
   async function handleAddCommand(chatId, argsStr) {
@@ -446,6 +675,8 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames })
           await sendGamesArchive(chatId);
         } else if (firstWord === '/add' || firstWord === '/добавить') {
           await handleAddCommand(chatId, args);
+        } else if (firstWord === '/broadcast' || firstWord === '/рассылка') {
+          await handleBroadcastCommand(chatId, args);
         } else if (firstWord === '/sync' || firstWord === '/обновить') {
           await handleSync(chatId);
         }
@@ -473,6 +704,12 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames })
           await sendExcelDocument(chatId);
         } else if (data === 'help_add') {
           await handleAddCommand(chatId, '');
+        } else if (data === 'bc_menu') {
+          await sendBroadcastMenu(chatId);
+        } else if (data === 'bc_status') {
+          await sendBroadcastStatus(chatId);
+        } else if (data === 'menu') {
+          await sendMainMenu(chatId);
         } else if (data === 'sync') {
           await handleSync(chatId);
         }
@@ -494,6 +731,7 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames })
         body: JSON.stringify({
           commands: [
             { command: 'menu', description: 'Панель управления ACTION Киноквиз' },
+            { command: 'broadcast', description: '📢 Срочная рассылка (перенос, отмена)' },
             { command: 'archive', description: '📜 Архив и история всех игр' },
             { command: 'stats', description: '📊 Статистика и посадка зала' },
             { command: 'bookings', description: '📋 Список зарегистрированных команд' },

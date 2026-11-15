@@ -25,7 +25,8 @@ import {
   formatCurrency,
   formatKaragandaTime,
   formatBookingAlert,
-  sendBookingAlert
+  sendBookingAlert,
+  sendBroadcastLaunchAlert
 } from '../src/telegram/notifier.js';
 
 test('Telegram Alerts Test Suite (Milestone M3)', async (t) => {
@@ -397,5 +398,36 @@ test('Telegram Alerts Test Suite (Milestone M3)', async (t) => {
     assert.match(result.error, /Request timed out after 5000ms/);
     // Retried twice: 500ms, 1000ms
     assert.deepEqual(sleptDelays, [500, 1000]);
+  });
+
+  // 12. Broadcast Launch Alert
+  await t.test('12. sendBroadcastLaunchAlert formats and sends urgent broadcast notification', async () => {
+    let capturedBody = null;
+    const mockFetch = async (url, options) => {
+      capturedBody = JSON.parse(options.body);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ ok: true, result: { message_id: 888 } })
+      };
+    };
+
+    const config = { botToken: 'TOKEN_XYZ', chatId: '-100999' };
+    const res = await sendBroadcastLaunchAlert({
+      type: 'reschedule',
+      target: 'game',
+      gameTitle: 'Киномарафон: 100 вопросов',
+      recipientsCount: 8,
+      template: 'Уважаемый капитан, игра переносится...',
+      batchId: 'BATCH_RESCHEDULE_1'
+    }, config, { fetch: mockFetch });
+
+    assert.equal(res.success, true);
+    assert.equal(res.messageId, 888);
+    assert.ok(capturedBody);
+    assert.match(capturedBody.text, /ЗАПУЩЕНА СРОЧНАЯ РАССЫЛКА WHATSAPP/);
+    assert.match(capturedBody.text, /Перенос игры/);
+    assert.match(capturedBody.text, /Киномарафон: 100 вопросов/);
+    assert.match(capturedBody.text, /8/);
   });
 });

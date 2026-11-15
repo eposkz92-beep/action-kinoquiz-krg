@@ -156,27 +156,20 @@ export function formatBookingAlert(booking, options = {}) {
 }
 
 /**
- * Sends a structured booking alert to the organizer Telegram chat.
+ * Sends a generic raw HTML message to the organizer Telegram chat.
  * Catches all errors and returns a status object; never throws an unhandled rejection.
  *
- * @param {Object} booking - Booking details object
- * @param {Object} [customConfig=null] - Optional override config { botToken, chatId } or { telegram: { botToken, chatId } }
+ * @param {string} text - HTML message text
+ * @param {Object} [customConfig=null] - Optional override config
  * @param {Object} [options={}] - Execution options
- * @param {Function} [options.fetch=globalThis.fetch] - Injectable fetch implementation
- * @param {Function} [options.sleepFn] - Injectable sleep function for tests
- * @param {number} [options.timeoutMs=10000] - Request timeout in milliseconds
- * @param {number} [options.maxRetries=3] - Maximum retry attempts for 429/5xx errors
- * @param {number} [options.pricePerPlayer] - Price override
- * @param {string} [options.timezone] - Timezone override
  * @returns {Promise<{ success: boolean, messageId?: number, skipped?: boolean, error?: string }>}
  */
-export async function sendBookingAlert(booking, customConfig = null, options = {}) {
+export async function sendTelegramMessage(text, customConfig = null, options = {}) {
   try {
     const cfg = customConfig || config;
     const botToken = cfg?.botToken || cfg?.telegram?.botToken || '';
     const chatId = cfg?.chatId || cfg?.telegram?.chatId || '';
 
-    // Check if Telegram alerting is configured
     if (!botToken || !chatId) {
       return {
         success: false,
@@ -190,7 +183,6 @@ export async function sendBookingAlert(booking, customConfig = null, options = {
     const timeoutMs = options.timeoutMs || 10000;
     const maxRetries = options.maxRetries !== undefined ? options.maxRetries : 3;
 
-    const formattedText = formatBookingAlert(booking, options);
     const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
 
     for (let attempt = 0; attempt <= maxRetries; attempt++) {
@@ -213,7 +205,7 @@ export async function sendBookingAlert(booking, customConfig = null, options = {
           },
           body: JSON.stringify({
             chat_id: chatId,
-            text: formattedText,
+            text,
             parse_mode: 'HTML',
             disable_web_page_preview: true,
             link_preview_options: {
@@ -321,8 +313,68 @@ export async function sendBookingAlert(booking, customConfig = null, options = {
   }
 }
 
+/**
+ * Sends a structured booking alert to the organizer Telegram chat.
+ * Catches all errors and returns a status object; never throws an unhandled rejection.
+ *
+ * @param {Object} booking - Booking details object
+ * @param {Object} [customConfig=null] - Optional override config { botToken, chatId } or { telegram: { botToken, chatId } }
+ * @param {Object} [options={}] - Execution options
+ * @returns {Promise<{ success: boolean, messageId?: number, skipped?: boolean, error?: string }>}
+ */
+export async function sendBookingAlert(booking, customConfig = null, options = {}) {
+  const formattedText = formatBookingAlert(booking, options);
+  return sendTelegramMessage(formattedText, customConfig, options);
+}
+
+/**
+ * Sends a notification to the organizer chat when an urgent or ad-hoc broadcast is launched.
+ *
+ * @param {Object} payload
+ * @param {string} payload.type - 'reschedule' | 'cancel' | 'custom'
+ * @param {string} payload.target - 'game' | 'all'
+ * @param {string} [payload.gameTitle] - Game title if target is 'game'
+ * @param {number} payload.recipientsCount - Number of recipients queued
+ * @param {string} payload.template - Preview of message template
+ * @param {string} [payload.batchId] - Batch identifier
+ * @param {Object} [customConfig=null]
+ * @param {Object} [options={}]
+ * @returns {Promise<{ success: boolean, messageId?: number }>}
+ */
+export async function sendBroadcastLaunchAlert(payload, customConfig = null, options = {}) {
+  const typeLabels = {
+    reschedule: '⚠️ Перенос игры',
+    cancel: '❌ Отмена игры',
+    custom: '📢 Срочное объявление'
+  };
+  const typeLabel = typeLabels[payload.type] || '📢 Рассылка';
+  const targetLabel = payload.target === 'game'
+    ? `Записанные на игру: «${escapeHtml(payload.gameTitle || 'Выбранная игра')}»`
+    : 'Все контакты из базы';
+
+  const preview = escapeHtml((payload.template || '').slice(0, 320) + ((payload.template || '').length > 320 ? '...' : ''));
+
+  const text = [
+    `📢 <b>ЗАПУЩЕНА СРОЧНАЯ РАССЫЛКА WHATSAPP</b>`,
+    ``,
+    `📌 <b>Тип:</b> ${typeLabel}`,
+    `🎯 <b>Аудитория:</b> ${targetLabel}`,
+    `👥 <b>Получателей:</b> <b>${payload.recipientsCount}</b> чел. (очередь FIFO с анти-бан задержкой)`,
+    `🆔 <b>ID пакета:</b> <code>${payload.batchId || 'N/A'}</code>`,
+    ``,
+    `📝 <b>Текст рассылки:</b>`,
+    `<pre>${preview}</pre>`,
+    ``,
+    `<i>Сообщения отправляются с паузой 3–7 сек с симуляцией набора текста.</i>`
+  ].join('\n');
+
+  return sendTelegramMessage(text, customConfig, options);
+}
+
 export default {
   sendBookingAlert,
+  sendTelegramMessage,
+  sendBroadcastLaunchAlert,
   formatBookingAlert,
   escapeHtml,
   cleanPhoneForWa,
