@@ -215,20 +215,27 @@ export async function sendTelegramMessage(text, customConfig = null, options = {
           signal = controller.signal;
         }
 
+        const messagePayload = {
+          chat_id: chatId,
+          text,
+          parse_mode: 'HTML',
+          disable_web_page_preview: true,
+          link_preview_options: {
+            is_disabled: true
+          }
+        };
+
+        const replyMarkup = options.reply_markup || options.replyMarkup;
+        if (replyMarkup) {
+          messagePayload.reply_markup = replyMarkup;
+        }
+
         const response = await fetchFn(url, {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json'
           },
-          body: JSON.stringify({
-            chat_id: chatId,
-            text,
-            parse_mode: 'HTML',
-            disable_web_page_preview: true,
-            link_preview_options: {
-              is_disabled: true
-            }
-          }),
+          body: JSON.stringify(messagePayload),
           signal
         });
 
@@ -341,7 +348,23 @@ export async function sendTelegramMessage(text, customConfig = null, options = {
  */
 export async function sendBookingAlert(booking, customConfig = null, options = {}) {
   const formattedText = formatBookingAlert(booking, options);
-  return sendTelegramMessage(formattedText, customConfig, options);
+  const bookingId = booking?.id || booking?.bookingId;
+
+  let replyMarkup = options?.reply_markup !== undefined ? options.reply_markup : options?.replyMarkup;
+  if (replyMarkup === undefined && bookingId) {
+    replyMarkup = {
+      inline_keyboard: [
+        [
+          { text: '🗑️ Удалить эту бронь', callback_data: `del_ask_${bookingId}` }
+        ]
+      ]
+    };
+  }
+
+  return sendTelegramMessage(formattedText, customConfig, {
+    ...options,
+    reply_markup: replyMarkup
+  });
 }
 
 /**

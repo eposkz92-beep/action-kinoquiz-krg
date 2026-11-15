@@ -826,10 +826,10 @@ footer{padding:50px 0 25px;background:#09060f;border-top:1px solid var(--line)}
       <h2 id="modalTitle">Записать команду</h2>
       <p id="modalDesc">Заполните форму — заявка мгновенно поступит организаторам, а бот пришлёт подтверждение в WhatsApp.</p>
 
-      <form id="regForm">
+      <form id="regForm" autocomplete="off">
         <div class="field">
           <label for="team">Название команды (или ваше имя)</label>
-          <input id="team" name="team" placeholder="Например: ДНК, Ошибка 606 или Артём" required>
+          <input id="team" name="team" placeholder="Например: ДНК, Ошибка 606 или Артём" autocomplete="off" required>
         </div>
 
         <div class="field">
@@ -852,7 +852,7 @@ footer{padding:50px 0 25px;background:#09060f;border-top:1px solid var(--line)}
 
         <div class="field">
           <label for="phone">Номер WhatsApp</label>
-          <input id="phone" name="phone" type="tel" placeholder="+7 7__ ___ __ __" required>
+          <input id="phone" name="phone" type="tel" placeholder="+7 7__ ___ __ __" autocomplete="off" required>
         </div>
 
         <div class="field">
@@ -913,7 +913,23 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
+function resetBookingForm() {
+  const form = document.getElementById('regForm');
+  if (form) form.reset();
+  const teamInp = document.getElementById('team');
+  if (teamInp) teamInp.value = '';
+  const phoneInp = document.getElementById('phone');
+  if (phoneInp) phoneInp.value = '';
+  const playersSel = document.getElementById('players');
+  if (playersSel) playersSel.selectedIndex = 0;
+  const leagueSel = document.getElementById('league');
+  if (leagueSel) leagueSel.selectedIndex = 0;
+}
+
 function openModal(game = '') {
+  // Always start with a completely empty form so user fills it from scratch every time
+  resetBookingForm();
+
   modal.classList.add('show');
   document.body.style.overflow = 'hidden';
   navLinks.classList.remove('open');
@@ -939,6 +955,7 @@ function openModal(game = '') {
 function closeModal() {
   modal.classList.remove('show');
   document.body.style.overflow = '';
+  resetBookingForm();
 }
 
 document.querySelectorAll('[data-open]').forEach(b => b.addEventListener('click', () => openModal()));
@@ -1067,6 +1084,7 @@ document.getElementById('regForm').addEventListener('submit', async e => {
       if (descEl) {
         descEl.innerHTML = `Команда «<b>${escapeHtml(team)}</b>» (${escapeHtml(players)} чел.) записана на «<b>${escapeHtml(cleanGameTitle)}</b>»!<br>📅 <b>Дата проведения:</b> ${escapeHtml(gameDate)}<br><br>📱 Мы отправили подтверждение на ваш номер <b>${escapeHtml(phone)}</b> в WhatsApp.`;
       }
+      resetBookingForm();
     }
   } catch (err) {
     console.warn('Direct server booking failed or blocked. Falling back to WhatsApp:', err);
@@ -1075,6 +1093,7 @@ document.getElementById('regForm').addEventListener('submit', async e => {
   // Graceful fallback to WhatsApp if direct server call didn't succeed
   if (!apiSuccess) {
     openWhatsAppFallback();
+    resetBookingForm();
   }
 });
 

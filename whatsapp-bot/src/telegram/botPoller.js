@@ -211,6 +211,7 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames, b
             { text: '📥 Скачать Excel', callback_data: 'excel' }
           ],
           [
+            { text: '🗑️ Удалить бронь', callback_data: 'del_list' },
             { text: '« В главное меню', callback_data: 'menu' }
           ]
         ]
@@ -1182,6 +1183,91 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames, b
     }
   }
 
+  async function sendDeletePicker(chatId, messageId = null) {
+    try {
+      const allBookings = (db.bookings.list({ limit: 100 }) || []).filter(b => b.status !== 'cancelled');
+      if (allBookings.length === 0) {
+        const text = '📋 <b>Активных броней для удаления нет.</b>';
+        const replyMarkup = {
+          inline_keyboard: [
+            [{ text: '« В главное меню', callback_data: 'menu' }]
+          ]
+        };
+        await editOrSendMessage(chatId, messageId, text, { reply_markup: replyMarkup });
+        return;
+      }
+
+      const rows = allBookings.slice(0, 15).map(b => [
+        {
+          text: `❌ #${b.id} «${b.team_name}» (${b.players_count} чел.)`,
+          callback_data: `del_ask_${b.id}`
+        }
+      ]);
+
+      rows.push([
+        { text: '📋 Список всех броней', callback_data: 'bookings' },
+        { text: '« В главное меню', callback_data: 'menu' }
+      ]);
+
+      const text = [
+        '🗑️ <b>УДАЛЕНИЕ БРОНИ</b>',
+        '',
+        'Выберите команду из списка ниже для удаления:',
+        '<i>Или отправьте команду с номером:</i> <code>/delete &lt;ID&gt;</code> (например: <code>/delete 15</code>)'
+      ].join('\n');
+
+      await editOrSendMessage(chatId, messageId, text, {
+        reply_markup: { inline_keyboard: rows }
+      });
+    } catch (err) {
+      logger.error({ err: err.message }, 'Failed to send delete picker');
+      await sendMessage(chatId, '❌ Ошибка при открытии меню удаления.');
+    }
+  }
+
+  async function handleDeleteCommand(chatId, argsStr) {
+    if (!argsStr || !argsStr.trim()) {
+      await sendDeletePicker(chatId);
+      return;
+    }
+
+    const match = argsStr.trim().match(/\d+/);
+    if (!match) {
+      await sendMessage(chatId, '⚠️ Укажите числовой ID брони для удаления, например:\n<code>/delete 15</code>');
+      return;
+    }
+
+    const id = parseInt(match[0], 10);
+    const b = db.bookings.getById(id);
+    if (!b) {
+      await sendMessage(chatId, `❌ <b>Бронь с ID #${id} не найдена в базе данных.</b>`);
+      return;
+    }
+
+    const confirmText = [
+      `⚠️ <b>Вы действительно хотите удалить бронь #${b.id}?</b>`,
+      '',
+      `👥 <b>Команда:</b> «${escapeHtml(b.team_name)}»`,
+      `🎬 <b>Игра:</b> ${escapeHtml(b.game_title)} (${escapeHtml(b.game_date)})`,
+      `👤 <b>Капитан:</b> ${escapeHtml(b.captain_name)} (📱 ${escapeHtml(b.captain_phone)})`,
+      `🔢 <b>Игроков:</b> ${b.players_count} чел.`,
+      b.notes ? `📝 <b>Лига/Примечания:</b> <i>${escapeHtml(b.notes)}</i>` : '',
+      '',
+      '<i>После подтверждения запись будет стёрта из базы, а места освобождены.</i>'
+    ].filter(Boolean).join('\n');
+
+    const replyMarkup = {
+      inline_keyboard: [
+        [
+          { text: '❌ Да, удалить!', callback_data: `del_ok_${b.id}` },
+          { text: '↩️ Отмена', callback_data: 'del_cancel' }
+        ]
+      ]
+    };
+
+    await sendMessage(chatId, confirmText, { reply_markup: replyMarkup });
+  }
+
   async function handleSync(chatId) {
     if (typeof syncRepositoryGames === 'function') {
       await sendMessage(chatId, '⏳ Запускаю синхронизацию расписания с GitHub...');
@@ -1286,6 +1372,8 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames, b
           await sendGamesArchive(chatId);
         } else if (firstWord === '/add' || firstWord === '/добавить') {
           await handleAddCommand(chatId, args);
+        } else if (firstWord === '/delete' || firstWord === '/del' || firstWord === '/удалить' || firstWord === '/remove') {
+          await handleDeleteCommand(chatId, args);
         } else if (firstWord === '/broadcast' || firstWord === '/рассылка') {
           await handleBroadcastCommand(chatId, args);
         } else if (firstWord === '/qr' || lowerText === 'qr' || lowerText === 'кьюар' || lowerText === 'кью ар') {
@@ -1372,6 +1460,90 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames, b
           await chooseBroadcastType(chatId, messageId, tgt);
         } else if (data === 'bc_status') {
           await sendBroadcastStatus(chatId, messageId);
+        } else if (data === 'del_list') {
+          await sendDeletePicker(chatId, messageId);
+        } else if (data.startsWith('del_ask_')) {
+          const id = parseInt(data.replace('del_ask_', ''), 10);
+          const b = db.bookings.getById(id);
+          if (!b) {
+            await answerCallbackQuery(cq.id, 'Бронь не найдена или уже удалена');
+            const notFoundText = `⚠️ <b>Бронь #${id} не найдена или уже была удалена.</b>`;
+            const markup = {
+              inline_keyboard: [
+                [{ text: '📋 Список броней', callback_data: 'bookings' }],
+                [{ text: '« В главное меню', callback_data: 'menu' }]
+              ]
+            };
+            await editOrSendMessage(chatId, messageId, notFoundText, { reply_markup: markup });
+          } else {
+            const confirmText = [
+              `⚠️ <b>Вы действительно хотите удалить бронь #${b.id}?</b>`,
+              '',
+              `👥 <b>Команда:</b> «${escapeHtml(b.team_name)}»`,
+              `🎬 <b>Игра:</b> ${escapeHtml(b.game_title)} (${escapeHtml(b.game_date)})`,
+              `👤 <b>Капитан:</b> ${escapeHtml(b.captain_name)} (📱 ${escapeHtml(b.captain_phone)})`,
+              `🔢 <b>Игроков:</b> ${b.players_count} чел.`,
+              b.notes ? `📝 <b>Лига/Примечания:</b> <i>${escapeHtml(b.notes)}</i>` : '',
+              '',
+              '<i>После подтверждения запись будет стёрта из базы, а места освобождены.</i>'
+            ].filter(Boolean).join('\n');
+
+            const markup = {
+              inline_keyboard: [
+                [
+                  { text: '❌ Да, удалить!', callback_data: `del_ok_${b.id}` },
+                  { text: '↩️ Отмена', callback_data: 'del_cancel' }
+                ]
+              ]
+            };
+            await editOrSendMessage(chatId, messageId, confirmText, { reply_markup: markup });
+          }
+        } else if (data.startsWith('del_ok_')) {
+          const id = parseInt(data.replace('del_ok_', ''), 10);
+          const b = db.bookings.getById(id);
+          const ok = db.bookings.delete(id);
+          if (ok) {
+            await answerCallbackQuery(cq.id, `✅ Бронь #${id} удалена!`);
+            const doneText = [
+              `🗑️ <b>БРОНЬ #${id} УСПЕШНО УДАЛЕНА!</b>`,
+              '',
+              b ? `👥 <b>Команда:</b> «${escapeHtml(b.team_name)}»\n🎬 <b>Игра:</b> ${escapeHtml(b.game_title)} (${escapeHtml(b.game_date)})\n👤 <b>Капитан:</b> ${escapeHtml(b.captain_name)} (📱 ${escapeHtml(b.captain_phone)})` : '',
+              '',
+              '✅ <i>Запись стёрта из базы. Места освобождены для других участников.</i>'
+            ].filter(Boolean).join('\n');
+
+            const markup = {
+              inline_keyboard: [
+                [
+                  { text: '📋 Список броней', callback_data: 'bookings' },
+                  { text: '« В главное меню', callback_data: 'menu' }
+                ]
+              ]
+            };
+            await editOrSendMessage(chatId, messageId, doneText, { reply_markup: markup });
+          } else {
+            await answerCallbackQuery(cq.id, `⚠️ Не удалось удалить бронь #${id}`);
+            await editOrSendMessage(chatId, messageId, `⚠️ <b>Не удалось удалить бронь #${id} (возможно, она уже была удалена).</b>`, {
+              reply_markup: {
+                inline_keyboard: [
+                  [{ text: '📋 Список броней', callback_data: 'bookings' }],
+                  [{ text: '« В главное меню', callback_data: 'menu' }]
+                ]
+              }
+            });
+          }
+        } else if (data === 'del_cancel') {
+          await answerCallbackQuery(cq.id, 'Удаление отменено');
+          await editOrSendMessage(chatId, messageId, '↩️ <b>Удаление брони отменено.</b>', {
+            reply_markup: {
+              inline_keyboard: [
+                [
+                  { text: '📋 Список броней', callback_data: 'bookings' },
+                  { text: '« В главное меню', callback_data: 'menu' }
+                ]
+              ]
+            }
+          });
         }
       }
     } catch (err) {
@@ -1396,6 +1568,7 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames, b
             { command: 'archive', description: '📜 Архив и история всех игр' },
             { command: 'stats', description: '📊 Статистика и посадка зала' },
             { command: 'bookings', description: '📋 Список зарегистрированных команд' },
+            { command: 'delete', description: '🗑️ Удалить бронь по номеру ID' },
             { command: 'excel', description: '📥 Скачать выгрузку в Excel (.xlsx)' },
             { command: 'add', description: '➕ Быстро добавить бронь вручную' },
             { command: 'sync', description: '🔄 Обновить игры с GitHub' }

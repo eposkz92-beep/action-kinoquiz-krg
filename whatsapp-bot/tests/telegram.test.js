@@ -430,4 +430,56 @@ test('Telegram Alerts Test Suite (Milestone M3)', async (t) => {
     assert.match(capturedBody.text, /Киномарафон: 100 вопросов/);
     assert.match(capturedBody.text, /8/);
   });
+
+  // 13. Inline Delete Button in Booking Alert
+  await t.test('13. sendBookingAlert automatically attaches inline delete button when booking has ID', async () => {
+    let capturedBody = null;
+    const mockFetch = async (url, options) => {
+      capturedBody = JSON.parse(options.body);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ ok: true, result: { message_id: 1055 } })
+      };
+    };
+
+    const booking = {
+      id: 42,
+      team_name: 'КиберПанки',
+      captain_name: 'Виктор',
+      captain_phone: '+7 701 999 88 77',
+      players_count: 6,
+      game_title: 'Киномарафон',
+      game_date: '17 ноября'
+    };
+
+    const config = { botToken: 'TEST_TOKEN', chatId: '-10042' };
+    const res = await sendBookingAlert(booking, config, { fetch: mockFetch });
+
+    assert.equal(res.success, true);
+    assert.ok(capturedBody);
+    assert.ok(capturedBody.reply_markup);
+    assert.ok(Array.isArray(capturedBody.reply_markup.inline_keyboard));
+    assert.equal(capturedBody.reply_markup.inline_keyboard[0][0].text, '🗑️ Удалить эту бронь');
+    assert.equal(capturedBody.reply_markup.inline_keyboard[0][0].callback_data, 'del_ask_42');
+  });
+
+  // 14. Custom or Null reply_markup
+  await t.test('14. sendBookingAlert allows overriding or disabling reply_markup', async () => {
+    let capturedBody = null;
+    const mockFetch = async (url, options) => {
+      capturedBody = JSON.parse(options.body);
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ ok: true, result: { message_id: 1056 } })
+      };
+    };
+
+    const booking = { id: 99, team_name: 'NoButtons' };
+    const config = { botToken: 'TEST_TOKEN', chatId: '-10042' };
+
+    await sendBookingAlert(booking, config, { fetch: mockFetch, reply_markup: null });
+    assert.equal(capturedBody.reply_markup, undefined);
+  });
 });

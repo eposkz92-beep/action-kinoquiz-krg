@@ -1147,6 +1147,11 @@ function renderWebDashboard(qrDataUrl) {
       const modal = document.getElementById('bookingModal');
       if (modal) {
         modal.style.display = 'flex';
+        const t = document.getElementById('mTeamName'); if (t) t.value = '';
+        const c = document.getElementById('mCaptainName'); if (c) c.value = '';
+        const p = document.getElementById('mCaptainPhone'); if (p) p.value = '';
+        const pl = document.getElementById('mPlayersCount'); if (pl) pl.value = '6';
+        const n = document.getElementById('mNotes'); if (n) n.value = '';
         document.getElementById('mTeamName')?.focus();
       }
     }
@@ -1156,6 +1161,11 @@ function renderWebDashboard(qrDataUrl) {
       if (modal) modal.style.display = 'none';
       const errEl = document.getElementById('modalError');
       if (errEl) errEl.style.display = 'none';
+      const t = document.getElementById('mTeamName'); if (t) t.value = '';
+      const c = document.getElementById('mCaptainName'); if (c) c.value = '';
+      const p = document.getElementById('mCaptainPhone'); if (p) p.value = '';
+      const pl = document.getElementById('mPlayersCount'); if (pl) pl.value = '6';
+      const n = document.getElementById('mNotes'); if (n) n.value = '';
     }
 
     async function submitBooking(event) {
