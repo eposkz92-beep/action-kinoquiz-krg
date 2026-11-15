@@ -58,10 +58,17 @@ import {
   BROADCAST_TEMPLATES,
   resolveBroadcastRecipients
 } from './broadcast/manualBroadcast.js';
+import { createSecurityManager, getClientIp } from './security.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 const botRootDir = path.resolve(__dirname, '..');
+
+const securityManager = createSecurityManager({
+  adminUser: config.security?.adminUser || 'admin',
+  adminPassword: config.security?.adminPassword || 'kinoquiz2026',
+  apiSecret: config.security?.apiSecret || 'kinoquiz2026'
+});
 
 // 1. Logger
 const logger = pino({
@@ -1767,7 +1774,39 @@ function renderWebDashboard(qrDataUrl) {
 
 // 3. Start Lightweight Web Dashboard & Status Server
 const webServer = http.createServer(async (req, res) => {
+  // Hardened Security Headers
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.setHeader('X-Frame-Options', 'DENY');
+  res.setHeader('X-XSS-Protection', '1; mode=block');
+  res.setHeader('Referrer-Policy', 'strict-origin-when-cross-origin');
+
   const url = new URL(req.url, `http://${req.headers.host || 'localhost'}`);
+  const clientIp = getClientIp(req);
+
+  // Public health-check endpoint
+  if (url.pathname === '/api/health') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ ok: true, status: 'healthy', uptime: process.uptime() }));
+    return;
+  }
+
+  // Enforce authentication on all non-public endpoints
+  if (!securityManager.isPublicPath(url.pathname)) {
+    if (securityManager.isBlocked(clientIp)) {
+      logger.warn({ ip: clientIp, path: url.pathname }, 'Blocked request from rate-limited IP');
+      securityManager.sendRateLimited(res);
+      return;
+    }
+
+    if (!securityManager.authenticateRequest(req)) {
+      securityManager.recordFailure(clientIp);
+      logger.warn({ ip: clientIp, path: url.pathname }, 'Unauthorized access attempt blocked');
+      securityManager.sendUnauthorized(res);
+      return;
+    }
+
+    securityManager.recordSuccess(clientIp);
+  }
 
   if (url.pathname === '/' || url.pathname === '/qr') {
     let qrDataUrl = null;

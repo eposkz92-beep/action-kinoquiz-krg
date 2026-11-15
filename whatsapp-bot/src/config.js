@@ -66,6 +66,12 @@ export const config = {
     maxDelayMs: 7000,
     optOutKeyword: 'СТОП',
     reminderCron: '0 12 * * 2' // Every Tuesday at 12:00
+  },
+
+  security: {
+    adminUser: process.env.ADMIN_USER || 'admin',
+    adminPassword: process.env.ADMIN_PASSWORD || 'kinoquiz2026',
+    apiSecret: process.env.API_SECRET || process.env.ADMIN_PASSWORD || 'kinoquiz2026'
   }
 };
 
