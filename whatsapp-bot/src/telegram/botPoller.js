@@ -115,8 +115,7 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames, b
       [{ text: '📢 Срочная рассылка' }, { text: '➕ Добавить бронь' }],
       [{ text: '📜 Архив игр' }, { text: '📥 Скачать Excel' }]
     ],
-    resize_keyboard: true,
-    is_persistent: true
+    resize_keyboard: true
   };
 
   async function sendExcelDocument(chatId) {
@@ -481,12 +480,7 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames, b
     if (messageId) {
       await editOrSendMessage(chatId, messageId, text, { reply_markup: replyMarkup });
     } else {
-      await sendMessage(chatId, text, {
-        reply_markup: {
-          ...replyMarkup,
-          ...MAIN_REPLY_KEYBOARD
-        }
-      });
+      await sendMessage(chatId, text, { reply_markup: replyMarkup });
     }
   }
 
