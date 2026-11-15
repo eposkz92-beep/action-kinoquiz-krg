@@ -232,7 +232,7 @@ function renderWebDashboard(qrDataUrl) {
         <td class="cell-center">${sourceBadge}</td>
         <td class="cell-center">${statusBadge}</td>
         <td class="cell-center">
-          <button onclick="deleteBooking(${b.id}, '${escapeHtml(b.team_name)}')" class="del-btn" title="Удалить бронь">🗑️</button>
+          <button onclick="deleteBooking(${b.id})" class="del-btn" title="Удалить бронь">🗑️</button>
         </td>
       </tr>
     `;
@@ -1033,7 +1033,7 @@ function renderWebDashboard(qrDataUrl) {
         const res = await fetch('/api/sync-games', { method: 'POST' });
         const data = await res.json();
         if (data.ok) {
-          alert('✅ Расписание игр успешно синхронизировано с GitHub!\n\n' + (data.message || 'Все игры актуальны.'));
+          alert('✅ Расписание игр успешно синхронизировано с GitHub!\\n\\n' + (data.message || 'Все игры актуальны.'));
           window.location.reload();
         } else {
           alert('⚠️ Ошибка обновления: ' + (data.error || 'Не удалось обновить'));
@@ -1045,15 +1045,27 @@ function renderWebDashboard(qrDataUrl) {
       }
     }
 
-    async function deleteBooking(id, teamName) {
+    async function deleteBooking(id) {
+      const row = document.getElementById('booking-row-' + id);
+      const teamName = row ? (row.querySelector('.team-name')?.innerText || '#' + id) : '#' + id;
       if (!confirm('Удалить бронь команды «' + teamName + '»?')) return;
       try {
         const res = await fetch('/api/bookings/delete?id=' + id, { method: 'POST' });
         const data = await res.json();
         if (data.ok) {
-          window.location.reload();
+          if (row) {
+            row.style.transition = 'all 0.3s ease';
+            row.style.opacity = '0';
+            row.style.transform = 'scale(0.95)';
+            setTimeout(() => {
+              row.remove();
+              applyFilters();
+            }, 300);
+          } else {
+            window.location.reload();
+          }
         } else {
-          alert('Ошибка при удалении брони');
+          alert('Ошибка при удалении брони: ' + (data.error || 'Не удалось удалить'));
         }
       } catch (e) {
         alert('Ошибка сети при удалении');
@@ -1172,7 +1184,7 @@ function renderWebDashboard(qrDataUrl) {
 
         const data = await res.json();
         if (data.ok) {
-          alert('✅ Бронь команды «' + teamName + '» успешно добавлена!\nУведомление отправлено в Telegram.');
+          alert('✅ Бронь команды «' + teamName + '» успешно добавлена!\\nУведомление отправлено в Telegram.');
           closeBookingModal();
           window.location.reload();
         } else {
@@ -1251,31 +1263,31 @@ function renderWebDashboard(qrDataUrl) {
         const newDate = document.getElementById('bcNewDate')?.value || '20 ноября (среда)';
         const newTime = document.getElementById('bcNewTime')?.value || '19:30';
         const reason = document.getElementById('bcRescheduleReason')?.value || 'Технические работы в зале';
-        text = '⚠️ *ACTION КИНОКВИЗ — ПЕРЕНОС ИГРЫ!*\n\n' +
-          'Приветствуем, Алексей!\n' +
-          'Сообщаем об изменении даты/времени проведения игры *«' + gameName + '»*:\n\n' +
-          '📅 *Новая дата:* ' + newDate + '\n' +
-          '⏰ *Время сбора:* ' + newTime + '\n' +
-          '📍 *Место:* Караоке-бар «То Место» (пр. Нуркена Абдирова, 5)\n' +
-          '📌 *Причина:* ' + reason + '\n\n' +
-          'Бронь команды *«ДНК»* (6 чел.) автоматически сохранена за вами!\n' +
-          'Если вашей команде не подходит новое время, просто напишите нам в ответном сообщении.\n\n' +
+        text = '⚠️ *ACTION КИНОКВИЗ — ПЕРЕНОС ИГРЫ!*\\n\\n' +
+          'Приветствуем, Алексей!\\n' +
+          'Сообщаем об изменении даты/времени проведения игры *«' + gameName + '»*:\\n\\n' +
+          '📅 *Новая дата:* ' + newDate + '\\n' +
+          '⏰ *Время сбора:* ' + newTime + '\\n' +
+          '📍 *Место:* Караоке-бар «То Место» (пр. Нуркена Абдирова, 5)\\n' +
+          '📌 *Причина:* ' + reason + '\\n\\n' +
+          'Бронь команды *«ДНК»* (6 чел.) автоматически сохранена за вами!\\n' +
+          'Если вашей команде не подходит новое время, просто напишите нам в ответном сообщении.\\n\\n' +
           'Приносим извинения за неудобства и ждём вас на игре! 🎬✨';
       } else if (selectedBcType === 'cancel') {
         const reason = document.getElementById('bcCancelReason')?.value || 'Форс-мажорные обстоятельства площадки';
-        text = '❌ *ACTION КИНОКВИЗ — ОТМЕНА ИГРЫ*\n\n' +
-          'Здравствуйте, Алексей!\n' +
-          'К сожалению, игра *«' + gameName + '»* (' + gameDate + ') отменяется.\n' +
-          '📌 *Причина:* ' + reason + '\n\n' +
-          'Бронь команды *«ДНК»* аннулирована. Все внесенные предоплаты (если были) будут возвращены в полном объеме.\n\n' +
-          'Будем искренне рады видеть команду *«ДНК»* на наших следующих играх! Расписание квизов доступно на сайте и в боте.\n\n' +
+        text = '❌ *ACTION КИНОКВИЗ — ОТМЕНА ИГРЫ*\\n\\n' +
+          'Здравствуйте, Алексей!\\n' +
+          'К сожалению, игра *«' + gameName + '»* (' + gameDate + ') отменяется.\\n' +
+          '📌 *Причина:* ' + reason + '\\n\\n' +
+          'Бронь команды *«ДНК»* аннулирована. Все внесенные предоплаты (если были) будут возвращены в полном объеме.\\n\\n' +
+          'Будем искренне рады видеть команду *«ДНК»* на наших следующих играх! Расписание квизов доступно на сайте и в боте.\\n\\n' +
           'Приносим искренние извинения за доставленные неудобства! 🙏🎬';
       } else {
         const customText = document.getElementById('bcCustomText')?.value || 'Напоминаем, что сбор команд начинается за 30 минут до старта! Ждём вас в баре «То Место».';
-        text = '📢 *ACTION КИНОКВИЗ — ВАЖНОЕ СООБЩЕНИЕ*\n\n' +
-          'Здравствуйте, Алексей (команда *«ДНК»*)!\n\n' +
-          customText + '\n\n' +
-          '📍 Караоке-бар «То Место», пр. Нуркена Абдирова, 5\n' +
+        text = '📢 *ACTION КИНОКВИЗ — ВАЖНОЕ СООБЩЕНИЕ*\\n\\n' +
+          'Здравствуйте, Алексей (команда *«ДНК»*)!\\n\\n' +
+          customText + '\\n\\n' +
+          '📍 Караоке-бар «То Место», пр. Нуркена Абдирова, 5\\n' +
           'Организаторы ACTION Киноквиз Караганда 🎬';
       }
 
@@ -1347,7 +1359,7 @@ function renderWebDashboard(qrDataUrl) {
 
         const data = await res.json();
         if (data.ok) {
-          alert('✅ Рассылка успешно поставлена в очередь!\n\n👥 Получателей: ' + (data.queuedCount || 0) + '\n🆔 ID пакета: ' + (data.batchId || 'N/A') + '\n\nСообщения отправляются с интервалом 3–7 секунд для защиты от бана.');
+          alert('✅ Рассылка успешно поставлена в очередь!\\n\\n👥 Получателей: ' + (data.queuedCount || 0) + '\\n🆔 ID пакета: ' + (data.batchId || 'N/A') + '\\n\\nСообщения отправляются с интервалом 3–7 секунд для защиты от бана.');
           closeBroadcastModal();
         } else {
           if (errEl) {
