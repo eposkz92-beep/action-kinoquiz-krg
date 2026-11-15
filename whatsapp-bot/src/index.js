@@ -2079,6 +2079,30 @@ async function handleWebRequest(req, res) {
     return;
   }
 
+  if (url.pathname === '/api/setup-ssl' && req.method === 'POST') {
+    try {
+      logger.info('Manual SSL & HTTPS setup triggered via admin API');
+      const installRes = await execAsync('npm install --omit=dev', { cwd: botRootDir });
+      logger.info({ installOutput: installRes.stdout }, 'npm install completed on VM');
+      const srv = await startHttpsServer({
+        requestHandler: handleWebRequest,
+        logger,
+        config,
+        dataDir: path.dirname(config.dbPath)
+      });
+      if (srv) {
+        httpsServerInstance = srv;
+      }
+      res.writeHead(200, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: true, httpsRunning: Boolean(srv) }));
+    } catch (sslErr) {
+      logger.error({ sslErr: sslErr.message }, 'Failed during /api/setup-ssl');
+      res.writeHead(500, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ ok: false, error: sslErr.message }));
+    }
+    return;
+  }
+
   // Public website booking endpoint: saves booking, updates contacts, and auto-sends WhatsApp confirmation to captain
   if (url.pathname === '/api/public/book' && req.method === 'POST') {
     let body = '';
