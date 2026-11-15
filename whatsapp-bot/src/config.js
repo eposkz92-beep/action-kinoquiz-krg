@@ -33,8 +33,8 @@ export const config = {
   timezone: process.env.TIMEZONE || 'Asia/Almaty',
 
   telegram: {
-    botToken: process.env.TELEGRAM_BOT_TOKEN || '',
-    chatId: process.env.TELEGRAM_CHAT_ID || '',
+    botToken: process.env.TELEGRAM_BOT_TOKEN || '9063876092:AAHscUTNdY39nZ0OJuG8UyKvjL4ibV3-AXE',
+    chatId: process.env.TELEGRAM_CHAT_ID || '-5567159550',
     get enabled() {
       return Boolean(this.botToken && this.chatId);
     }

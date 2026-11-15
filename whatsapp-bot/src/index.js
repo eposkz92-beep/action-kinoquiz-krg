@@ -922,6 +922,41 @@ const webServer = http.createServer(async (req, res) => {
     return;
   }
 
+  if (url.pathname === '/api/bookings/create' && req.method === 'POST') {
+    let body = '';
+    req.on('data', (chunk) => { body += chunk; });
+    req.on('end', async () => {
+      try {
+        const payload = JSON.parse(body || '{}');
+        const booking = db.bookings.create({
+          teamName: payload.teamName || payload.team_name,
+          captainName: payload.captainName || payload.captain_name,
+          captainPhone: payload.captainPhone || payload.captain_phone,
+          playersCount: payload.playersCount || payload.players_count,
+          gameTitle: payload.gameTitle || payload.game_title,
+          gameDate: payload.gameDate || payload.game_date,
+          source: payload.source || 'web',
+          status: payload.status || 'confirmed',
+          notes: payload.notes || ''
+        });
+
+        let telegramResult = null;
+        try {
+          telegramResult = await sendBookingAlert(booking);
+        } catch (tgErr) {
+          logger.warn({ tgErr }, 'Telegram alert failed in /api/bookings/create');
+        }
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: true, booking, telegram: telegramResult }));
+      } catch (err) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ ok: false, error: err.message }));
+      }
+    });
+    return;
+  }
+
   if (url.pathname === '/api/bookings/delete' && req.method === 'POST') {
     const id = url.searchParams.get('id');
     if (id && db.bookings.delete(id)) {
