@@ -199,7 +199,9 @@ export async function executeManualBroadcast({
   newTime = '19:30',
   reason = '',
   overrideTemplate = null,
-  telegramAlertFn = null
+  telegramAlertFn = null,
+  selectedPhones = null,
+  manualRecipients = null
 } = {}) {
   if (!broadcaster) {
     throw new Error('Broadcaster instance is required');
@@ -214,12 +216,33 @@ export async function executeManualBroadcast({
     overrideTemplate
   });
 
-  const recipients = resolveBroadcastRecipients({
-    db,
-    target,
-    gameTitle,
-    gameDate
-  });
+  let recipients = [];
+  if (target === 'manual' && Array.isArray(manualRecipients) && manualRecipients.length > 0) {
+    recipients = manualRecipients.map(r => ({
+      phone: r.phone || r,
+      name: r.name || 'Капитан',
+      team: r.team || 'Команда',
+      params: {
+        captain: r.name || 'Капитан',
+        team: r.team || 'Команда',
+        game: gameTitle || 'ACTION Киноквиз',
+        date: gameDate || '',
+        phone: normalizePhone(r.phone || r)
+      }
+    }));
+  } else {
+    recipients = resolveBroadcastRecipients({
+      db,
+      target,
+      gameTitle,
+      gameDate
+    });
+
+    if (Array.isArray(selectedPhones) && selectedPhones.length > 0) {
+      const allowedSet = new Set(selectedPhones.map(p => normalizePhone(p)).filter(Boolean));
+      recipients = recipients.filter(r => allowedSet.has(normalizePhone(r.phone)));
+    }
+  }
 
   if (recipients.length === 0) {
     return {

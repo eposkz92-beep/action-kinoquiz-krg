@@ -828,6 +828,9 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames, b
           { text: `🚀 ДА, ОТПРАВИТЬ (${session.recipientsCount} ком.)`, callback_data: 'bc_send_confirmed' }
         ],
         [
+          { text: `📱 Посмотреть список номеров (${session.recipientsCount})`, callback_data: 'bc_view_numbers' }
+        ],
+        [
           { text: '✏️ Ввести другой текст', callback_data: 'bc_reenter' },
           { text: '❌ Отменить рассылку', callback_data: 'bc_cancel' }
         ]
@@ -1452,6 +1455,52 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames, b
         } else if (data === 'bc_reenter') {
           const session = tgSessions.get(chatId);
           await promptBroadcastContent(chatId, messageId, session?.type || 'custom');
+        } else if (data === 'bc_view_numbers') {
+          const session = tgSessions.get(chatId);
+          if (!session) {
+            await startBroadcastWizard(chatId, messageId);
+            return;
+          }
+          const recipients = resolveBroadcastRecipients({
+            db,
+            target: session.target,
+            gameTitle: session.gameTitle,
+            gameDate: session.gameDate
+          });
+
+          const lines = [
+            '📱 <b>СПИСОК НОМЕРОВ ДЛЯ РАССЫЛКИ:</b>',
+            '',
+            `🎯 <b>Аудитория:</b> ${escapeHtml(session.targetLabel)}`,
+            `👥 <b>Всего номеров:</b> <b>${recipients.length}</b> чел.`,
+            ''
+          ];
+
+          if (recipients.length === 0) {
+            lines.push('<i>Нет зарегистрированных контактов.</i>');
+          } else {
+            recipients.slice(0, 30).forEach((r, i) => {
+              lines.push(`<b>${i + 1}.</b> 📱 <code>${escapeHtml(r.phone)}</code> — «${escapeHtml(r.team || 'Команда')}» (${escapeHtml(r.name || 'Капитан')})`);
+            });
+            if (recipients.length > 30) {
+              lines.push(`<i>...и ещё ${recipients.length - 30} номеров.</i>`);
+            }
+          }
+
+          const backMarkup = {
+            inline_keyboard: [
+              [
+                { text: `🚀 Отправить (${session.recipientsCount} ком.)`, callback_data: 'bc_send_confirmed' }
+              ],
+              [
+                { text: '« Вернуться к тексту', callback_data: 'bc_back_preview' }
+              ]
+            ]
+          };
+
+          await editOrSendMessage(chatId, messageId, lines.join('\n'), { reply_markup: backMarkup });
+        } else if (data === 'bc_back_preview') {
+          await showBroadcastPreview(chatId, messageId);
         } else if (data === 'bc_cancel') {
           tgSessions.delete(chatId);
           await sendMainMenu(chatId, messageId);

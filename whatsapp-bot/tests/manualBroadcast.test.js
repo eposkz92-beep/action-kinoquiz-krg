@@ -248,4 +248,56 @@ describe('Manual / Ad-hoc Broadcast Engine', () => {
       /Broadcaster instance is required/
     );
   });
+
+  it('9. executeManualBroadcast filters recipients when selectedPhones array is provided', async () => {
+    let capturedRecipients = [];
+    const mockBroadcaster = {
+      async enqueue(payload) {
+        capturedRecipients = payload.recipients;
+        return { batchId: 'BATCH_FILTERED_1', queuedCount: payload.recipients.length };
+      }
+    };
+
+    // Game has two captains (+77011112233 and 87012223344), only select +77011112233
+    const result = await executeManualBroadcast({
+      db,
+      broadcaster: mockBroadcaster,
+      type: 'custom',
+      target: 'game',
+      gameTitle: 'Киномарафон: 100 вопросов',
+      selectedPhones: ['+77011112233']
+    });
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.queuedCount, 1);
+    assert.strictEqual(capturedRecipients.length, 1);
+    assert.strictEqual(capturedRecipients[0].phone, '+77011112233');
+  });
+
+  it('10. executeManualBroadcast supports manual target and manualRecipients', async () => {
+    let capturedRecipients = [];
+    const mockBroadcaster = {
+      async enqueue(payload) {
+        capturedRecipients = payload.recipients;
+        return { batchId: 'BATCH_MANUAL_1', queuedCount: payload.recipients.length };
+      }
+    };
+
+    const manualList = [
+      { phone: '+77051112233', name: 'Капитан 1', team: 'Команда 1' },
+      { phone: '+77052223344', name: 'Капитан 2', team: 'Команда 2' }
+    ];
+
+    const result = await executeManualBroadcast({
+      db,
+      broadcaster: mockBroadcaster,
+      type: 'custom',
+      target: 'manual',
+      manualRecipients: manualList
+    });
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(result.queuedCount, 2);
+    assert.strictEqual(capturedRecipients.length, 2);
+  });
 });

@@ -986,6 +986,69 @@ function renderWebDashboard(qrDataUrl) {
       align-items: center;
       justify-content: space-between;
     }
+    .recipients-list-box {
+      background: #0d0a1a;
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 10px;
+      padding: 6px 8px;
+      max-height: 165px;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      gap: 3px;
+    }
+    .recipient-item {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 6px 8px;
+      border-radius: 6px;
+      background: rgba(255,255,255,0.03);
+      border: 1px solid rgba(255,255,255,0.04);
+      cursor: pointer;
+      font-size: 12.5px;
+      transition: background 0.15s;
+    }
+    .recipient-item:hover {
+      background: rgba(255,255,255,0.08);
+    }
+    .recipient-item input[type="checkbox"] {
+      cursor: pointer;
+      accent-color: var(--accent);
+      width: 15px;
+      height: 15px;
+      margin: 0;
+    }
+    .recipient-phone {
+      font-family: monospace;
+      font-weight: 700;
+      color: #38bdf8;
+      white-space: nowrap;
+    }
+    .recipient-team {
+      font-weight: 600;
+      color: #f8fafc;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+      max-width: 170px;
+    }
+    .recipient-captain {
+      color: var(--muted);
+      font-size: 11.5px;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+    .recipient-tag {
+      margin-left: auto;
+      font-size: 10.5px;
+      background: rgba(255,255,255,0.08);
+      padding: 2px 6px;
+      border-radius: 4px;
+      color: #cbd5e1;
+      white-space: nowrap;
+    }
   </style>
 
   <script>
@@ -1237,6 +1300,7 @@ function renderWebDashboard(qrDataUrl) {
     }
 
     let selectedBcType = 'reschedule';
+    let currentRecipients = [];
 
     function openBroadcastModal() {
       const modal = document.getElementById('broadcastModal');
@@ -1244,6 +1308,7 @@ function renderWebDashboard(qrDataUrl) {
         modal.style.display = 'flex';
         updateBroadcastFields();
         refreshBroadcastQueueStatus();
+        loadBroadcastRecipients();
       }
     }
 
@@ -1271,6 +1336,144 @@ function renderWebDashboard(qrDataUrl) {
       if (custom) custom.style.display = selectedBcType === 'custom' ? 'block' : 'none';
 
       updateBroadcastPreview();
+    }
+
+    function onBroadcastTargetChanged() {
+      loadBroadcastRecipients();
+      updateBroadcastPreview();
+    }
+
+    async function loadBroadcastRecipients() {
+      const targetVal = document.getElementById('bcTargetSelect')?.value || 'all';
+      const listEl = document.getElementById('bcRecipientsList');
+      const badgeEl = document.getElementById('bcRecipientsBadge');
+      const manualBox = document.getElementById('bcManualInputContainer');
+      const searchBox = document.getElementById('bcSearchWrapper');
+      const toolbar = document.getElementById('bcToolbarButtons');
+
+      if (targetVal === 'manual') {
+        if (listEl) listEl.style.display = 'none';
+        if (searchBox) searchBox.style.display = 'none';
+        if (toolbar) toolbar.style.display = 'none';
+        if (manualBox) manualBox.style.display = 'block';
+        if (badgeEl) badgeEl.innerText = '(ручной ввод)';
+        onManualPhonesChanged();
+        return;
+      }
+
+      if (manualBox) manualBox.style.display = 'none';
+      if (searchBox) searchBox.style.display = 'block';
+      if (toolbar) toolbar.style.display = 'flex';
+      if (listEl) {
+        listEl.style.display = 'flex';
+        listEl.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:12px;text-align:center;">⏳ Загрузка списка номеров...</div>';
+      }
+
+      let target = 'all';
+      let gameTitle = '';
+      let gameDate = '';
+
+      if (targetVal.startsWith('game_')) {
+        target = 'game';
+        const parts = targetVal.split('|');
+        gameTitle = parts[1] || '';
+        gameDate = parts[2] || '';
+      }
+
+      try {
+        const q = new URLSearchParams({ target, gameTitle, gameDate }).toString();
+        const res = await apiFetch('/api/broadcast/recipients?' + q);
+        const data = await res.json();
+        if (data.ok && Array.isArray(data.recipients)) {
+          currentRecipients = data.recipients;
+          renderRecipientsList();
+        } else {
+          currentRecipients = [];
+          if (listEl) listEl.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:12px;text-align:center;">Получатели не найдены</div>';
+        }
+      } catch (err) {
+        if (listEl) listEl.innerHTML = '<div style="color:#f87171;font-size:12px;padding:12px;text-align:center;">Ошибка загрузки списка номеров</div>';
+      }
+    }
+
+    function renderRecipientsList() {
+      const listEl = document.getElementById('bcRecipientsList');
+      const badgeEl = document.getElementById('bcRecipientsBadge');
+      const searchVal = (document.getElementById('bcRecipientSearch')?.value || '').toLowerCase().trim();
+
+      if (!listEl) return;
+
+      if (currentRecipients.length === 0) {
+        listEl.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:12px;text-align:center;">Нет зарегистрированных контактов для выбранной аудитории</div>';
+        if (badgeEl) badgeEl.innerText = '(0 номеров)';
+        updateRecipientsSummary(0, 0);
+        return;
+      }
+
+      const filtered = currentRecipients.filter(r => {
+        if (!searchVal) return true;
+        const p = (r.phone || '').toLowerCase();
+        const t = (r.team || '').toLowerCase();
+        const n = (r.name || '').toLowerCase();
+        return p.includes(searchVal) || t.includes(searchVal) || n.includes(searchVal);
+      });
+
+      if (filtered.length === 0) {
+        listEl.innerHTML = '<div style="color:var(--muted);font-size:12px;padding:12px;text-align:center;">Ничего не найдено по фильтру «' + searchVal + '»</div>';
+        return;
+      }
+
+      listEl.innerHTML = filtered.map(r => {
+        const safePhone = (r.phone || '').replace(/"/g, '&quot;');
+        const safeTeam = (r.team || 'Команда').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        const safeName = (r.name || 'Капитан').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        const safeTag = (r.game ? r.game.slice(0, 22) : 'База').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        return `
+          <label class="recipient-item">
+            <input type="checkbox" class="bc-recipient-checkbox" value="${safePhone}" checked onchange="onRecipientCheckChanged()">
+            <span class="recipient-phone">${safePhone}</span>
+            <span class="recipient-team">«${safeTeam}»</span>
+            <span class="recipient-captain">(${safeName})</span>
+            <span class="recipient-tag">${safeTag}</span>
+          </label>
+        `;
+      }).join('');
+
+      if (badgeEl) badgeEl.innerText = '(' + currentRecipients.length + ' ном.)';
+      onRecipientCheckChanged();
+    }
+
+    function filterRecipientsDisplay() {
+      renderRecipientsList();
+    }
+
+    function toggleAllRecipients(checked) {
+      const boxes = document.querySelectorAll('.bc-recipient-checkbox');
+      boxes.forEach(cb => { cb.checked = checked; });
+      onRecipientCheckChanged();
+    }
+
+    function onRecipientCheckChanged() {
+      const checkedBoxes = document.querySelectorAll('.bc-recipient-checkbox:checked');
+      const totalBoxes = document.querySelectorAll('.bc-recipient-checkbox');
+      updateRecipientsSummary(checkedBoxes.length, totalBoxes.length);
+    }
+
+    function updateRecipientsSummary(selected, total) {
+      const selEl = document.getElementById('bcSelectedCount');
+      if (selEl) selEl.innerText = selected + ' из ' + total;
+      const submitBtn = document.getElementById('bcSubmitBtn');
+      if (submitBtn && !submitBtn.disabled) {
+        submitBtn.innerText = '🚀 Запустить рассылку (' + selected + ')';
+      }
+    }
+
+    function onManualPhonesChanged() {
+      const text = document.getElementById('bcManualPhones')?.value || '';
+      const phones = text.split(/[\\n,;]+/).map(p => p.trim()).filter(Boolean);
+      updateRecipientsSummary(phones.length, phones.length);
+      const badgeEl = document.getElementById('bcRecipientsBadge');
+      if (badgeEl) badgeEl.innerText = '(' + phones.length + ' введено)';
     }
 
     function updateBroadcastPreview() {
@@ -1348,21 +1551,38 @@ function renderWebDashboard(qrDataUrl) {
       let target = 'all';
       let gameTitle = '';
       let gameDate = '';
+      let selectedPhones = null;
+      let manualRecipients = null;
 
-      if (targetVal.startsWith('game_')) {
-        target = 'game';
-        const parts = targetVal.split('|');
-        gameTitle = parts[1] || '';
-        gameDate = parts[2] || '';
+      if (targetVal === 'manual') {
+        target = 'manual';
+        const rawPhones = document.getElementById('bcManualPhones')?.value || '';
+        const lines = rawPhones.split(/[\\n,;]+/).map(p => p.trim()).filter(Boolean);
+        if (lines.length === 0) {
+          alert('Пожалуйста, введите хотя бы один номер телефона для рассылки.');
+          return;
+        }
+        manualRecipients = lines.map(p => ({ phone: p, name: 'Участник', team: 'Команда' }));
+      } else {
+        if (targetVal.startsWith('game_')) {
+          target = 'game';
+          const parts = targetVal.split('|');
+          gameTitle = parts[1] || '';
+          gameDate = parts[2] || '';
+        }
+
+        const checkedBoxes = document.querySelectorAll('.bc-recipient-checkbox:checked');
+        if (checkedBoxes.length === 0) {
+          alert('Пожалуйста, отметьте галочками хотя бы один номер в списке для отправки.');
+          return;
+        }
+        selectedPhones = Array.from(checkedBoxes).map(cb => cb.value);
       }
 
-      const newDate = document.getElementById('bcNewDate')?.value || '';
-      const newTime = document.getElementById('bcNewTime')?.value || '19:30';
-      const reason = (selectedBcType === 'reschedule' ? document.getElementById('bcRescheduleReason')?.value : document.getElementById('bcCancelReason')?.value) || '';
-      const customText = document.getElementById('bcCustomText')?.value || '';
+      const countToSend = target === 'manual' ? (manualRecipients ? manualRecipients.length : 0) : (selectedPhones ? selectedPhones.length : 0);
+      const targetDesc = target === 'manual' ? 'на указанные вручную номера' : (target === 'game' ? 'командам игры «' + gameTitle + '»' : 'контактам из базы');
 
-      const targetDesc = target === 'game' ? 'командам игры «' + gameTitle + '»' : 'ВСЕЙ базе контактов';
-      if (!confirm('Вы действительно хотите запустить рассылку в WhatsApp (' + targetDesc + ')?')) {
+      if (!confirm('Вы действительно хотите запустить рассылку в WhatsApp (' + targetDesc + ')?\\n\\n👥 Будет отправлено: ' + countToSend + ' номеров\\n⚡ Защита от бана: FIFO-очередь с интервалом 3–7 сек.')) {
         return;
       }
 
@@ -1370,6 +1590,11 @@ function renderWebDashboard(qrDataUrl) {
         submitBtn.disabled = true;
         submitBtn.innerText = '⏳ Запуск...';
       }
+
+      const newDate = document.getElementById('bcNewDate')?.value || '';
+      const newTime = document.getElementById('bcNewTime')?.value || '19:30';
+      const reason = (selectedBcType === 'reschedule' ? document.getElementById('bcRescheduleReason')?.value : document.getElementById('bcCancelReason')?.value) || '';
+      const customText = document.getElementById('bcCustomText')?.value || '';
 
       try {
         const res = await apiFetch('/api/broadcast/send', {
@@ -1383,7 +1608,9 @@ function renderWebDashboard(qrDataUrl) {
             newDate,
             newTime,
             reason,
-            customText
+            customText,
+            selectedPhones,
+            manualRecipients
           })
         });
 
@@ -1405,7 +1632,7 @@ function renderWebDashboard(qrDataUrl) {
       } finally {
         if (submitBtn) {
           submitBtn.disabled = false;
-          submitBtn.innerText = '🚀 Запустить рассылку';
+          submitBtn.innerText = '🚀 Запустить рассылку (' + countToSend + ')';
         }
       }
     }
@@ -1754,14 +1981,46 @@ function renderWebDashboard(qrDataUrl) {
 
         <div class="form-group">
           <label class="form-label">Целевая аудитория (кому отправлять) <span class="req">*</span></label>
-          <select id="bcTargetSelect" class="form-input" onchange="updateBroadcastPreview()">
+          <select id="bcTargetSelect" class="form-input" onchange="onBroadcastTargetChanged()">
             ${activeGames.map((game, i) => {
               const count = bookings.filter(b => b.status !== 'cancelled' && (b.game_title || '').includes(game.title)).length;
               return `<option value="game_${i}|${escapeHtml(game.title)}|${escapeHtml(game.dateStr)}">🎯 Записанные на: ${escapeHtml(game.title)} (${escapeHtml(game.dateStr)}) — ${count} ком.</option>`;
             }).join('\n')}
             <option value="all">👥 Все подписанные контакты из базы (${contactsCount} капитанов)</option>
+            <option value="manual">✍️ Ввести свои номера вручную</option>
           </select>
           <div class="form-help">При переносе или отмене рекомендуется выбирать только зарегистрированных на эту игру!</div>
+        </div>
+
+        <!-- Recipients & Phone Numbers Viewer Block -->
+        <div class="form-group" id="bcRecipientsBox" style="margin-top: -4px;">
+          <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px;">
+            <label class="form-label" style="margin: 0;">
+              📱 Список номеров для отправки:
+              <span id="bcRecipientsBadge" style="color: var(--accent); font-weight: 700;">(загрузка...)</span>
+            </label>
+            <div id="bcToolbarButtons" style="display: flex; gap: 6px;">
+              <button type="button" class="btn-cancel" style="padding: 3px 8px; font-size: 11px;" onclick="toggleAllRecipients(true)">✓ Выбрать все</button>
+              <button type="button" class="btn-cancel" style="padding: 3px 8px; font-size: 11px;" onclick="toggleAllRecipients(false)">✗ Снять все</button>
+            </div>
+          </div>
+
+          <div id="bcSearchWrapper" style="margin-bottom: 6px;">
+            <input type="text" id="bcRecipientSearch" class="form-input" style="padding: 7px 11px; font-size: 12px; width: 100%; box-sizing: border-box;" placeholder="🔍 Поиск в списке (по номеру, названию команды или имени)..." oninput="filterRecipientsDisplay()">
+          </div>
+
+          <div id="bcRecipientsList" class="recipients-list-box">
+            <!-- Dynamic recipient items rendered here -->
+          </div>
+
+          <div id="bcManualInputContainer" style="display: none; margin-top: 6px;">
+            <textarea id="bcManualPhones" class="form-input" rows="3" placeholder="+7 701 123 45 67, +7 702 987 65 43 (введите номера через запятую или с новой строки)" oninput="onManualPhonesChanged()"></textarea>
+            <div class="form-help">Номера будут добавлены в очередь рассылки с защитой от бана (интервал 3–7 сек).</div>
+          </div>
+
+          <div id="bcRecipientsSummary" style="font-size: 12px; color: var(--muted); margin-top: 5px; display: flex; justify-content: space-between;">
+            <span>Выбрано получателей: <b id="bcSelectedCount" style="color: #38bdf8;">0</b></span>
+          </div>
         </div>
 
         <!-- Fields for Reschedule -->
@@ -2398,6 +2657,34 @@ async function handleWebRequest(req, res) {
     return;
   }
 
+  if (url.pathname === '/api/broadcast/recipients' && req.method === 'GET') {
+    const target = url.searchParams.get('target') || 'all';
+    const gameTitle = url.searchParams.get('gameTitle') || '';
+    const gameDate = url.searchParams.get('gameDate') || '';
+
+    const recipients = resolveBroadcastRecipients({
+      db,
+      target,
+      gameTitle,
+      gameDate
+    });
+
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      ok: true,
+      count: recipients.length,
+      recipients: recipients.map(r => ({
+        phone: r.phone,
+        name: r.name || r.params?.captain || 'Капитан',
+        team: r.team || r.params?.team || 'Команда',
+        game: r.params?.game || '',
+        date: r.params?.date || '',
+        players: r.params?.players || ''
+      }))
+    }));
+    return;
+  }
+
   if (url.pathname === '/api/broadcast/send' && req.method === 'POST') {
     let body = '';
     req.on('data', (chunk) => { body += chunk; });
@@ -2416,6 +2703,8 @@ async function handleWebRequest(req, res) {
           newTime: payload.newTime || '19:30',
           reason: payload.reason || '',
           overrideTemplate: payload.overrideTemplate || null,
+          selectedPhones: payload.selectedPhones || null,
+          manualRecipients: payload.manualRecipients || null,
           telegramAlertFn: (alertData) => sendBroadcastLaunchAlert(alertData)
         });
 
