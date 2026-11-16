@@ -110,7 +110,8 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames, b
     keyboard: [
       [{ text: '📊 Статистика' }, { text: '📋 Список броней' }],
       [{ text: '📢 Срочная рассылка' }, { text: '➕ Добавить бронь' }],
-      [{ text: '📜 Архив игр' }, { text: '📥 Скачать Excel' }]
+      [{ text: '📱 Номера капитанов' }, { text: '📥 Скачать Excel' }],
+      [{ text: '📜 Архив игр' }]
     ],
     resize_keyboard: true
   };
@@ -208,10 +209,13 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames, b
           ],
           [
             { text: '🌟 Все игры', callback_data: 'bookings' },
-            { text: '📥 Скачать Excel', callback_data: 'excel' }
+            { text: '📱 Номера капитанов', callback_data: 'phones' }
           ],
           [
-            { text: '🗑️ Удалить бронь', callback_data: 'del_list' },
+            { text: '📥 Скачать Excel', callback_data: 'excel' },
+            { text: '🗑️ Удалить бронь', callback_data: 'del_list' }
+          ],
+          [
             { text: '« В главное меню', callback_data: 'menu' }
           ]
         ]
@@ -221,6 +225,88 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames, b
     } catch (err) {
       logger.error({ err: err.message }, 'Failed to send bookings list');
       await sendMessage(chatId, '❌ Ошибка при получении списка броней.');
+    }
+  }
+
+  async function sendPhonesList(chatId, messageId = null, filter = null) {
+    try {
+      const games = getActiveGames();
+      const g1 = games[0] || { title: 'Киномарафон: 100 вопросов', dateStr: '17 ноября' };
+      const g2 = games[1] || { title: 'Культовые Аниме', dateStr: '24 ноября' };
+
+      let targetLabel = 'Все зарегистрированные контакты';
+      let recipients = [];
+
+      if (filter === 'game_1' || filter === '0') {
+        targetLabel = `«${g1.title}» (${g1.dateStr})`;
+        recipients = resolveBroadcastRecipients({ db, target: 'game', gameTitle: g1.title });
+      } else if (filter === 'game_2' || filter === '1') {
+        targetLabel = `«${g2.title}» (${g2.dateStr})`;
+        recipients = resolveBroadcastRecipients({ db, target: 'game', gameTitle: g2.title });
+      } else {
+        targetLabel = 'ВСЯ база контактов (все игры)';
+        recipients = resolveBroadcastRecipients({ db, target: 'all' });
+      }
+
+      const countG1 = resolveBroadcastRecipients({ db, target: 'game', gameTitle: g1.title }).length;
+      const countG2 = resolveBroadcastRecipients({ db, target: 'game', gameTitle: g2.title }).length;
+      const totalAll = resolveBroadcastRecipients({ db, target: 'all' }).length;
+
+      const lines = [
+        '📱 <b>СПИСОК ТЕЛЕФОННЫХ НОМЕРОВ КАПИТАНОВ</b>',
+        '',
+        `🎯 <b>Выборка:</b> <b>${escapeHtml(targetLabel)}</b>`,
+        `👥 <b>Всего номеров:</b> <b>${recipients.length}</b> чел.`,
+        '💡 <i>Нажмите на номер в рамочке, чтобы скопировать его:</i>',
+        ''
+      ];
+
+      if (recipients.length === 0) {
+        lines.push('<i>Нет контактов по выбранной категории.</i>');
+      } else {
+        recipients.slice(0, 40).forEach((r, idx) => {
+          let rawPhone = String(r.phone || '');
+          let digits = rawPhone.replace(/\D/g, '');
+          if (digits.startsWith('8') && digits.length === 11) digits = '7' + digits.slice(1);
+          const waLink = digits ? ` • <a href="https://wa.me/${digits}">чат WA</a>` : '';
+          const teamStr = r.team ? `«${escapeHtml(r.team)}»` : 'Команда';
+          const nameStr = r.name ? escapeHtml(r.name) : 'Капитан';
+          lines.push(`<b>${idx + 1}.</b> 📱 <code>${escapeHtml(rawPhone)}</code> — ${teamStr} (${nameStr})${waLink}`);
+        });
+        if (recipients.length > 40) {
+          lines.push('');
+          lines.push(`<i>...и ещё ${recipients.length - 40} номеров. Полный список доступен в выгрузке Excel (.xlsx).</i>`);
+        }
+      }
+
+      const shortG1 = g1.title.length > 15 ? g1.title.slice(0, 13) + '…' : g1.title;
+      const shortG2 = g2.title.length > 15 ? g2.title.slice(0, 13) + '…' : g2.title;
+
+      const replyMarkup = {
+        inline_keyboard: [
+          [
+            { text: `🎬 ${shortG1} (${countG1})`, callback_data: 'phones_game_1' },
+            { text: `🎌 ${shortG2} (${countG2})`, callback_data: 'phones_game_2' }
+          ],
+          [
+            { text: `🌐 Все контакты (${totalAll})`, callback_data: 'phones_all' },
+            { text: '📥 Скачать Excel', callback_data: 'excel' }
+          ],
+          [
+            { text: '📢 Срочная рассылка', callback_data: 'bc_start' },
+            { text: '« В главное меню', callback_data: 'menu' }
+          ]
+        ]
+      };
+
+      if (messageId) {
+        await editOrSendMessage(chatId, messageId, lines.join('\n'), { reply_markup: replyMarkup });
+      } else {
+        await sendMessage(chatId, lines.join('\n'), { reply_markup: replyMarkup });
+      }
+    } catch (err) {
+      logger.error({ err: err.message }, 'Failed to send phones list');
+      await sendMessage(chatId, '❌ Ошибка при получении списка номеров: ' + escapeHtml(err.message));
     }
   }
 
@@ -468,8 +554,12 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames, b
           { text: '➕ Добавить бронь', callback_data: 'add_start' }
         ],
         [
-          { text: '📱 WhatsApp QR / Статус', callback_data: 'wa_qr' },
-          { text: '📥 Скачать Excel', callback_data: 'excel' }
+          { text: '📱 Номера капитанов', callback_data: 'phones' },
+          { text: '📱 WhatsApp QR', callback_data: 'wa_qr' }
+        ],
+        [
+          { text: '📥 Скачать Excel', callback_data: 'excel' },
+          { text: '🗑️ Удалить бронь', callback_data: 'del_list' }
         ],
         [
           { text: `🎬 ${escapeHtml(shortG1)}`, callback_data: 'filter_game_1' },
@@ -641,6 +731,9 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames, b
         ],
         [
           { text: '📢 3. Срочное объявление', callback_data: 'bc_kind_custom' }
+        ],
+        [
+          { text: `📱 Посмотреть список номеров (${recipientsCount})`, callback_data: 'bc_view_numbers' }
         ],
         [
           { text: '« Назад к выбору аудитории', callback_data: 'bc_start' }
@@ -1342,6 +1435,11 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames, b
           await sendExcelDocument(chatId);
           return;
         }
+        if (text === '📱 Номера капитанов' || text === '📱 Список номеров' || lowerText === 'номера' || lowerText === 'телефоны') {
+          tgSessions.delete(chatId);
+          await sendPhonesList(chatId);
+          return;
+        }
 
         // 1b. Global cancel keywords
         if (lowerText === 'отмена' || lowerText === 'назад' || lowerText === '/cancel') {
@@ -1367,6 +1465,8 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames, b
           await sendMainMenu(chatId);
         } else if (firstWord === '/excel' || firstWord === '/xlsx') {
           await sendExcelDocument(chatId);
+        } else if (firstWord === '/phones' || firstWord === '/numbers' || firstWord === '/номера' || firstWord === '/телефоны' || firstWord === '/контакты') {
+          await sendPhonesList(chatId);
         } else if (firstWord === '/bookings' || firstWord === '/list' || firstWord === '/брони') {
           await sendBookingsList(chatId);
         } else if (firstWord === '/stats' || firstWord === '/статистика') {
@@ -1424,6 +1524,12 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames, b
           await sendBookingsList(chatId, 'Аниме');
         } else if (data === 'excel') {
           await sendExcelDocument(chatId);
+        } else if (data === 'phones' || data === 'phones_all') {
+          await sendPhonesList(chatId, messageId, 'all');
+        } else if (data === 'phones_game_1') {
+          await sendPhonesList(chatId, messageId, 'game_1');
+        } else if (data === 'phones_game_2') {
+          await sendPhonesList(chatId, messageId, 'game_2');
         } else if (data === 'menu') {
           await sendMainMenu(chatId, messageId);
         } else if (data === 'sync') {
@@ -1473,29 +1579,41 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames, b
             '',
             `🎯 <b>Аудитория:</b> ${escapeHtml(session.targetLabel)}`,
             `👥 <b>Всего номеров:</b> <b>${recipients.length}</b> чел.`,
+            '💡 <i>Нажмите на номер в рамочке, чтобы скопировать его:</i>',
             ''
           ];
 
           if (recipients.length === 0) {
             lines.push('<i>Нет зарегистрированных контактов.</i>');
           } else {
-            recipients.slice(0, 30).forEach((r, i) => {
-              lines.push(`<b>${i + 1}.</b> 📱 <code>${escapeHtml(r.phone)}</code> — «${escapeHtml(r.team || 'Команда')}» (${escapeHtml(r.name || 'Капитан')})`);
+            recipients.slice(0, 35).forEach((r, i) => {
+              let rawPhone = String(r.phone || '');
+              let digits = rawPhone.replace(/\D/g, '');
+              if (digits.startsWith('8') && digits.length === 11) digits = '7' + digits.slice(1);
+              const waLink = digits ? ` • <a href="https://wa.me/${digits}">чат WA</a>` : '';
+              lines.push(`<b>${i + 1}.</b> 📱 <code>${escapeHtml(rawPhone)}</code> — «${escapeHtml(r.team || 'Команда')}» (${escapeHtml(r.name || 'Капитан')})${waLink}`);
             });
-            if (recipients.length > 30) {
-              lines.push(`<i>...и ещё ${recipients.length - 30} номеров.</i>`);
+            if (recipients.length > 35) {
+              lines.push(`<i>...и ещё ${recipients.length - 35} номеров.</i>`);
             }
           }
 
+          const backButtons = [];
+          if (session.step === 'confirm_broadcast') {
+            backButtons.push([
+              { text: `🚀 Отправить (${session.recipientsCount} ком.)`, callback_data: 'bc_send_confirmed' }
+            ]);
+            backButtons.push([
+              { text: '« Вернуться к тексту', callback_data: 'bc_back_preview' }
+            ]);
+          } else {
+            backButtons.push([
+              { text: '« Вернуться к выбору темы', callback_data: `bc_back_tgt_${session.targetCode || '0'}` }
+            ]);
+          }
+
           const backMarkup = {
-            inline_keyboard: [
-              [
-                { text: `🚀 Отправить (${session.recipientsCount} ком.)`, callback_data: 'bc_send_confirmed' }
-              ],
-              [
-                { text: '« Вернуться к тексту', callback_data: 'bc_back_preview' }
-              ]
-            ]
+            inline_keyboard: backButtons
           };
 
           await editOrSendMessage(chatId, messageId, lines.join('\n'), { reply_markup: backMarkup });
@@ -1617,6 +1735,7 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames, b
             { command: 'archive', description: '📜 Архив и история всех игр' },
             { command: 'stats', description: '📊 Статистика и посадка зала' },
             { command: 'bookings', description: '📋 Список зарегистрированных команд' },
+            { command: 'phones', description: '📱 Список номеров телефонов капитанов' },
             { command: 'delete', description: '🗑️ Удалить бронь по номеру ID' },
             { command: 'excel', description: '📥 Скачать выгрузку в Excel (.xlsx)' },
             { command: 'add', description: '➕ Быстро добавить бронь вручную' },

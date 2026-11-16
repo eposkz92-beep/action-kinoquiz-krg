@@ -482,4 +482,45 @@ test('Telegram Alerts Test Suite (Milestone M3)', async (t) => {
     await sendBookingAlert(booking, config, { fetch: mockFetch, reply_markup: null });
     assert.equal(capturedBody.reply_markup, undefined);
   });
+
+  // 15. Telegram Phone List Formatting & WhatsApp Links
+  await t.test('15. Telegram phone list helpers format KZ phone numbers and direct wa.me chat links', () => {
+    const rawPhones = ['+7 (701) 186-31-90', '87019998877', '+77021112233'];
+    const cleaned = rawPhones.map(p => cleanPhoneForWa(p));
+    assert.deepEqual(cleaned, ['77011863190', '77019998877', '77021112233']);
+
+    cleaned.forEach(digits => {
+      const waLink = `https://wa.me/${digits}`;
+      assert.ok(waLink.startsWith('https://wa.me/770'));
+    });
+  });
+
+  // 16. Telegram Recipients Resolution for Phone Viewing
+  await t.test('16. resolveBroadcastRecipients correctly groups phone numbers for Telegram viewer', async () => {
+    const { resolveBroadcastRecipients } = await import('../src/broadcast/manualBroadcast.js');
+    const mockDb = {
+      bookings: {
+        list: () => [
+          { captain_phone: '+7 701 111 22 33', captain_name: 'Алихан', team_name: 'Бригада', game_title: 'Киномарафон', status: 'confirmed' },
+          { captain_phone: '+7 701 111 22 33', captain_name: 'Алихан 2', team_name: 'Бригада Резерв', game_title: 'Киномарафон', status: 'confirmed' }, // duplicate phone
+          { captain_phone: '+7 702 444 55 66', captain_name: 'Гульнар', team_name: 'Анимешники', game_title: 'Культовые Аниме', status: 'confirmed' },
+          { captain_phone: '+7 705 777 88 99', captain_name: 'Иван', team_name: 'Отмененные', game_title: 'Киномарафон', status: 'cancelled' }
+        ]
+      },
+      contacts: {
+        getByPhone: () => null,
+        listForBroadcast: () => [
+          { phone: '+7 701 111 22 33', name: 'Алихан', team_name: 'Бригада' },
+          { phone: '+7 702 444 55 66', name: 'Гульнар', team_name: 'Анимешники' }
+        ]
+      }
+    };
+
+    const g1Recipients = resolveBroadcastRecipients({ db: mockDb, target: 'game', gameTitle: 'Киномарафон' });
+    assert.equal(g1Recipients.length, 1);
+    assert.equal(g1Recipients[0].phone, '+7 701 111 22 33');
+
+    const allRecipients = resolveBroadcastRecipients({ db: mockDb, target: 'all' });
+    assert.equal(allRecipients.length, 2);
+  });
 });
