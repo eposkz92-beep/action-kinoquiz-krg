@@ -720,7 +720,10 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames, b
       'Уведомление об отмене игры и полном возврате предоплаты.',
       '',
       '📢 <b>3. Срочное объявление</b>',
-      'Любое важное сообщение (сбор за 30 мин, схема заезда, правила).'
+      'Любое важное сообщение по шаблону (сбор за 30 мин, схема заезда, правила).',
+      '',
+      '💬 <b>4. Произвольный текст</b>',
+      'Свой текст слово в слово, без рамок и шаблонов.'
     ].join('\n');
 
     const replyMarkup = {
@@ -730,7 +733,8 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames, b
           { text: '❌ 2. Отмена игры', callback_data: 'bc_kind_cancel' }
         ],
         [
-          { text: '📢 3. Срочное объявление', callback_data: 'bc_kind_custom' }
+          { text: '📢 3. Срочное объявление', callback_data: 'bc_kind_custom' },
+          { text: '💬 4. Произвольный текст', callback_data: 'bc_kind_freeform' }
         ],
         [
           { text: `📱 Посмотреть список номеров (${recipientsCount})`, callback_data: 'bc_view_numbers' }
@@ -801,6 +805,34 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames, b
           [{ text: '⚠️ Форс-мажор на площадке', callback_data: 'bc_p_cancel_1' }],
           [{ text: '❄️ Буран / Погодные условия', callback_data: 'bc_p_cancel_2' }],
           [{ text: '🔧 Технические неполадки в баре', callback_data: 'bc_p_cancel_3' }],
+          [{ text: '« Назад к выбору темы', callback_data: backCb }]
+        ]
+      };
+      await editOrSendMessage(chatId, messageId, text, { reply_markup: replyMarkup });
+      return;
+    }
+
+    if (kind === 'freeform') {
+      const text = [
+        '💬 <b>ПРОИЗВОЛЬНЫЙ ТЕКСТ РАССЫЛКИ</b>',
+        '',
+        `🎯 <b>Аудитория:</b> ${escapeHtml(session.targetLabel)}`,
+        `👥 <b>Получателей:</b> <b>${session.recipientsCount}</b> чел.`,
+        '',
+        '👇 <b>Напишите текст сообщения прямо в этот чат:</b>',
+        '<i>Сообщение будет отправлено капитанам слово в слово, без лишних рамок и стандартных подписей.</i>',
+        '',
+        '💡 <i>По желанию можно использовать теги подстановки:</i>',
+        '• <code>{{captain}}</code> — имя капитана (напр. <i>Алексей</i>)',
+        '• <code>{{team}}</code> — название команды (напр. <i>ДНК</i>)',
+        '• <code>{{game}}</code> — название игры',
+        '• <code>{{date}}</code> — дата игры',
+        '',
+        '<i>(Если теги не нужны — просто отправьте обычный текст)</i>'
+      ].join('\n');
+
+      const replyMarkup = {
+        inline_keyboard: [
           [{ text: '« Назад к выбору темы', callback_data: backCb }]
         ]
       };
@@ -883,7 +915,8 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames, b
       customText: session.customText || '',
       newDate: session.newDate || '',
       newTime: session.newTime || '19:30',
-      reason: session.reason || ''
+      reason: session.reason || '',
+      overrideTemplate: session.overrideTemplate || (session.type === 'freeform' ? session.customText : null)
     });
 
     session.preparedTemplate = template;
@@ -898,19 +931,33 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames, b
       ...defaultParams
     });
 
+    const isFreeform = session.type === 'freeform';
+    const typeLabel = isFreeform
+      ? '💬 Произвольный текст'
+      : session.type === 'reschedule'
+        ? '⚠️ Перенос игры'
+        : session.type === 'cancel'
+          ? '❌ Отмена игры'
+          : '📢 Срочное объявление';
+
+    const noteText = isFreeform
+      ? '<i>(Сообщение отправляется слово в слово без стандартных шаблонов)</i>'
+      : '<i>(Имя капитана и название команды подставляются индивидуально для каждого получателя)</i>';
+
     const text = [
       '👁️ <b>ПРЕДВАРИТЕЛЬНЫЙ ПРОСМОТР РАССЫЛКИ (ШАГ 3 ИЗ 3)</b>',
       '',
       `🎯 <b>Кому отправляем:</b>`,
       `👉 <b>${escapeHtml(session.targetLabel)}</b>`,
       `👥 <b>Всего получателей:</b> <b>${session.recipientsCount}</b> команд / капитанов`,
+      `📌 <b>Формат:</b> <b>${escapeHtml(typeLabel)}</b>`,
       '🛡️ <b>Защита WhatsApp:</b> Пауза 3–7 сек + симуляция набора текста',
       '',
       '📝 <b>Текст, который получит каждый капитан:</b>',
       '──────────────────────',
       `<pre>${escapeHtml(sampleText)}</pre>`,
       '──────────────────────',
-      '<i>(Имя капитана и название команды подставляются индивидуально для каждого получателя)</i>',
+      noteText,
       '',
       '🚀 <b>Запустить эту рассылку в WhatsApp?</b>'
     ].join('\n');
@@ -1085,6 +1132,9 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames, b
         session.newDate = 'согласно сообщению';
       } else if (session.type === 'cancel') {
         session.reason = text;
+      } else if (session.type === 'freeform') {
+        session.customText = text;
+        session.overrideTemplate = text;
       } else {
         session.customText = text;
       }
@@ -1554,6 +1604,8 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames, b
           await promptBroadcastContent(chatId, messageId, 'cancel');
         } else if (data === 'bc_kind_custom') {
           await promptBroadcastContent(chatId, messageId, 'custom');
+        } else if (data === 'bc_kind_freeform') {
+          await promptBroadcastContent(chatId, messageId, 'freeform');
         } else if (data.startsWith('bc_p_')) {
           await handlePresetContent(chatId, messageId, data);
         } else if (data === 'bc_send_confirmed') {

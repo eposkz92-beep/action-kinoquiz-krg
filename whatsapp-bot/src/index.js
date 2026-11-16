@@ -1333,7 +1333,18 @@ function renderWebDashboard(qrDataUrl) {
 
       if (resched) resched.style.display = selectedBcType === 'reschedule' ? 'block' : 'none';
       if (cancel) cancel.style.display = selectedBcType === 'cancel' ? 'block' : 'none';
-      if (custom) custom.style.display = selectedBcType === 'custom' ? 'block' : 'none';
+      if (custom) {
+        custom.style.display = (selectedBcType === 'custom' || selectedBcType === 'freeform') ? 'block' : 'none';
+        const lbl = document.getElementById('bcCustomLabel');
+        const txt = document.getElementById('bcCustomText');
+        if (selectedBcType === 'freeform') {
+          if (lbl) lbl.innerHTML = 'Текст сообщения (произвольный текст без рамок) <span class="req">*</span>';
+          if (txt) txt.placeholder = 'Введите любой текст... Сообщение уйдет слово в слово. Доступны теги {{captain}}, {{team}}, {{game}}.';
+        } else {
+          if (lbl) lbl.innerHTML = 'Текст сообщения <span class="req">*</span>';
+          if (txt) txt.placeholder = 'Введите текст сообщения для участников...';
+        }
+      }
 
       updateBroadcastPreview();
     }
@@ -1513,6 +1524,13 @@ function renderWebDashboard(qrDataUrl) {
           'Бронь команды *«ДНК»* аннулирована. Все внесенные предоплаты (если были) будут возвращены в полном объеме.\\n\\n' +
           'Будем искренне рады видеть команду *«ДНК»* на наших следующих играх! Расписание квизов доступно на сайте и в боте.\\n\\n' +
           'Приносим искренние извинения за доставленные неудобства! 🙏🎬';
+      } else if (selectedBcType === 'freeform') {
+        const freeText = document.getElementById('bcCustomText')?.value || 'Приветствуем! Сообщаем важную информацию о квизе.';
+        text = freeText
+          .replace(/\{\{\s*captain\s*\}\}/gi, 'Алексей')
+          .replace(/\{\{\s*team\s*\}\}/gi, 'ДНК')
+          .replace(/\{\{\s*game\s*\}\}/gi, gameName)
+          .replace(/\{\{\s*date\s*\}\}/gi, gameDate);
       } else {
         const customText = document.getElementById('bcCustomText')?.value || 'Напоминаем, что сбор команд начинается за 30 минут до старта! Ждём вас в баре «То Место».';
         text = '📢 *ACTION КИНОКВИЗ — ВАЖНОЕ СООБЩЕНИЕ*\\n\\n' +
@@ -1607,6 +1625,7 @@ function renderWebDashboard(qrDataUrl) {
             newTime,
             reason,
             customText,
+            overrideTemplate: selectedBcType === 'freeform' ? customText : null,
             selectedPhones,
             manualRecipients
           })
@@ -1974,6 +1993,7 @@ function renderWebDashboard(qrDataUrl) {
             <button type="button" class="type-pill active" onclick="setBroadcastType('reschedule', this)">⚠️ Перенос игры</button>
             <button type="button" class="type-pill" onclick="setBroadcastType('cancel', this)">❌ Отмена игры</button>
             <button type="button" class="type-pill" onclick="setBroadcastType('custom', this)">📢 Объявление</button>
+            <button type="button" class="type-pill" onclick="setBroadcastType('freeform', this)">💬 Свой текст</button>
           </div>
         </div>
 
@@ -2050,7 +2070,7 @@ function renderWebDashboard(qrDataUrl) {
         <!-- Fields for Custom Announcement -->
         <div id="bcCustomFields" style="display: none;">
           <div class="form-group">
-            <label class="form-label">Текст сообщения <span class="req">*</span></label>
+            <label id="bcCustomLabel" class="form-label">Текст сообщения <span class="req">*</span></label>
             <textarea id="bcCustomText" class="form-input" rows="4" placeholder="Введите текст сообщения для участников..." oninput="updateBroadcastPreview()"></textarea>
           </div>
         </div>
@@ -2700,7 +2720,7 @@ async function handleWebRequest(req, res) {
           newDate: payload.newDate || '',
           newTime: payload.newTime || '19:30',
           reason: payload.reason || '',
-          overrideTemplate: payload.overrideTemplate || null,
+          overrideTemplate: payload.overrideTemplate || (payload.type === 'freeform' ? payload.customText : null),
           selectedPhones: payload.selectedPhones || null,
           manualRecipients: payload.manualRecipients || null,
           telegramAlertFn: (alertData) => sendBroadcastLaunchAlert(alertData)

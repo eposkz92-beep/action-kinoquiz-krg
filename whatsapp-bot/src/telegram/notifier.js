@@ -385,7 +385,8 @@ export async function sendBroadcastLaunchAlert(payload, customConfig = null, opt
   const typeLabels = {
     reschedule: '⚠️ Перенос игры',
     cancel: '❌ Отмена игры',
-    custom: '📢 Срочное объявление'
+    custom: '📢 Срочное объявление',
+    freeform: '💬 Произвольный текст'
   };
   const typeLabel = typeLabels[payload.type] || '📢 Рассылка';
   const targetLabel = payload.target === 'game'

@@ -43,14 +43,16 @@ export const BROADCAST_TEMPLATES = {
 {{text}}
 
 📍 Караоке-бар «То Место», пр. Нуркена Абдирова, 5
-Организаторы ACTION Киноквиз Караганда 🎬`
+Организаторы ACTION Киноквиз Караганда 🎬`,
+
+  freeform: `{{text}}`
 };
 
 /**
  * Prepares the template and parameters for broadcast.
  *
  * @param {Object} options
- * @param {'reschedule'|'cancel'|'custom'} options.type - Template type
+ * @param {'reschedule'|'cancel'|'custom'|'freeform'} options.type - Template type
  * @param {string} [options.customText] - Custom announcement text
  * @param {string} [options.newDate] - New date for reschedule
  * @param {string} [options.newTime] - New time for reschedule
@@ -68,7 +70,14 @@ export function prepareBroadcastTemplate({
   location = 'Караоке-бар «То Место» (пр. Нуркена Абдирова, 5)',
   overrideTemplate = null
 } = {}) {
-  let template = overrideTemplate || BROADCAST_TEMPLATES[type] || BROADCAST_TEMPLATES.custom;
+  let template = overrideTemplate;
+  if (!template) {
+    if (type === 'freeform') {
+      template = customText || '{{text}}';
+    } else {
+      template = BROADCAST_TEMPLATES[type] || BROADCAST_TEMPLATES.custom;
+    }
+  }
 
   const reasonLine = reason && reason.trim() ? `📌 *Причина:* ${reason.trim()}\n` : '';
 

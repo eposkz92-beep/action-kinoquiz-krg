@@ -300,4 +300,32 @@ describe('Manual / Ad-hoc Broadcast Engine', () => {
     assert.strictEqual(result.queuedCount, 2);
     assert.strictEqual(capturedRecipients.length, 2);
   });
+
+  it('11. executeManualBroadcast with type="freeform" dispatches arbitrary text without forced templates', async () => {
+    let capturedTemplate = null;
+    let capturedParams = null;
+    const mockBroadcaster = {
+      async enqueue(payload) {
+        capturedTemplate = payload.messageTemplate;
+        capturedParams = payload.params;
+        return { batchId: 'BATCH_FREEFORM_1', queuedCount: payload.recipients.length };
+      }
+    };
+
+    const freeText = 'Внимание капитанам: сбор в 19:15, столик №3 забронирован для {{team}}!';
+    const result = await executeManualBroadcast({
+      db,
+      broadcaster: mockBroadcaster,
+      type: 'freeform',
+      target: 'game',
+      gameTitle: 'Киномарафон: 100 вопросов',
+      customText: freeText
+    });
+
+    assert.strictEqual(result.ok, true);
+    assert.strictEqual(capturedTemplate, freeText);
+    assert.ok(!capturedTemplate.includes('ACTION КИНОКВИЗ — ВАЖНОЕ СООБЩЕНИЕ'));
+    assert.ok(!capturedTemplate.includes('Караоке-бар «То Место»'));
+    assert.strictEqual(capturedParams.text, freeText);
+  });
 });
