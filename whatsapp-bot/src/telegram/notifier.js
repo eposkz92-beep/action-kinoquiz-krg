@@ -41,6 +41,8 @@ export function cleanPhoneForWa(phone) {
   let digits = String(phone).replace(/\D/g, '');
   if (digits.startsWith('8') && digits.length === 11) {
     digits = '7' + digits.slice(1);
+  } else if (digits.length === 10) {
+    digits = '7' + digits;
   }
   return digits;
 }
@@ -205,9 +207,22 @@ export async function sendTelegramMessage(text, customConfig = null, options = {
   try {
     const cfg = customConfig || config;
     const botToken = cfg?.botToken || cfg?.telegram?.botToken || '';
-    const chatId = cfg?.chatId || cfg?.telegram?.chatId || '';
 
-    if (!botToken || !chatId) {
+    let targetChats = [];
+    if (customConfig && (customConfig.chatId || customConfig.telegram?.chatId)) {
+      const explicit = customConfig.chatId || customConfig.telegram?.chatId;
+      targetChats = [String(explicit)];
+    } else {
+      if (cfg?.chatId) targetChats.push(String(cfg.chatId));
+      if (cfg?.telegram?.chatId) targetChats.push(String(cfg.telegram.chatId));
+      if (cfg?.telegram?.adminChatId) targetChats.push(String(cfg.telegram.adminChatId));
+      if (Array.isArray(cfg?.telegram?.chatIds)) {
+        targetChats.push(...cfg.telegram.chatIds.map(String));
+      }
+    }
+    targetChats = [...new Set(targetChats.filter(Boolean))];
+
+    if (!botToken || targetChats.length === 0) {
       return {
         success: false,
         skipped: true,
@@ -219,135 +234,143 @@ export async function sendTelegramMessage(text, customConfig = null, options = {
     const sleepFn = options.sleepFn || ((ms) => new Promise(r => setTimeout(r, ms)));
     const timeoutMs = options.timeoutMs || 10000;
     const maxRetries = options.maxRetries !== undefined ? options.maxRetries : 3;
-
     const url = `https://api.telegram.org/bot${botToken}/sendMessage`;
 
-    for (let attempt = 0; attempt <= maxRetries; attempt++) {
-      try {
-        let signal;
-        let timer = null;
+    let primaryResult = null;
+    let anySuccess = false;
+    let lastError = null;
 
-        if (typeof AbortSignal?.timeout === 'function') {
-          signal = AbortSignal.timeout(timeoutMs);
-        } else {
-          const controller = new AbortController();
-          timer = setTimeout(() => controller.abort(), timeoutMs);
-          signal = controller.signal;
-        }
+    for (const chatId of targetChats) {
+      let chatSuccess = false;
+      let chatMessageId = null;
 
-        const messagePayload = {
-          chat_id: chatId,
-          text,
-          parse_mode: 'HTML',
-          disable_web_page_preview: true,
-          link_preview_options: {
-            is_disabled: true
+      for (let attempt = 0; attempt <= maxRetries; attempt++) {
+        try {
+          let signal;
+          let timer = null;
+
+          if (typeof AbortSignal?.timeout === 'function') {
+            signal = AbortSignal.timeout(timeoutMs);
+          } else {
+            const controller = new AbortController();
+            timer = setTimeout(() => controller.abort(), timeoutMs);
+            signal = controller.signal;
           }
-        };
 
-        const replyMarkup = options.reply_markup || options.replyMarkup;
-        if (replyMarkup) {
-          messagePayload.reply_markup = replyMarkup;
-        }
-
-        const response = await fetchFn(url, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json'
-          },
-          body: JSON.stringify(messagePayload),
-          signal
-        });
-
-        if (timer) clearTimeout(timer);
-
-        if (response.ok) {
-          const data = await response.json();
-          if (data && data.ok) {
-            return {
-              success: true,
-              messageId: data.result?.message_id
-            };
-          }
-          return {
-            success: false,
-            error: data?.description || 'Unknown Telegram error'
+          const messagePayload = {
+            chat_id: chatId,
+            text,
+            parse_mode: 'HTML',
+            disable_web_page_preview: true,
+            link_preview_options: {
+              is_disabled: true
+            }
           };
-        }
 
-        // Handle HTTP 429 Too Many Requests
-        if (response.status === 429) {
+          const replyMarkup = options.reply_markup || options.replyMarkup;
+          if (replyMarkup) {
+            messagePayload.reply_markup = replyMarkup;
+          }
+
+          const response = await fetchFn(url, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json'
+            },
+            body: JSON.stringify(messagePayload),
+            signal
+          });
+
+          if (timer) clearTimeout(timer);
+
+          if (response.ok) {
+            const data = await response.json();
+            if (data && data.ok) {
+              chatSuccess = true;
+              chatMessageId = data.result?.message_id;
+              break;
+            }
+            lastError = data?.description || 'Unknown Telegram error';
+            break;
+          }
+
+          // Handle HTTP 429 Too Many Requests
+          if (response.status === 429) {
+            let data = null;
+            try {
+              data = await response.json();
+            } catch {}
+
+            const retryAfterSec = Number(
+              data?.parameters?.retry_after ||
+              response.headers?.get?.('retry-after') ||
+              1
+            );
+
+            if (attempt < maxRetries) {
+              await sleepFn(retryAfterSec * 1000);
+              continue;
+            }
+
+            lastError = `Rate limit exceeded (HTTP 429): ${data?.description || 'Too Many Requests'}`;
+            break;
+          }
+
+          // Handle HTTP 5xx Server Errors (transient)
+          if (response.status >= 500) {
+            let data = null;
+            try {
+              data = await response.json();
+            } catch {}
+
+            if (attempt < maxRetries) {
+              const backoffMs = 500 * Math.pow(2, attempt);
+              await sleepFn(backoffMs);
+              continue;
+            }
+
+            lastError = `Telegram server error (HTTP ${response.status}): ${data?.description || response.statusText || 'Server Error'}`;
+            break;
+          }
+
+          // Handle HTTP 4xx Client Errors (non-transient, fail immediately without retry)
           let data = null;
           try {
             data = await response.json();
           } catch {}
 
-          const retryAfterSec = Number(
-            data?.parameters?.retry_after ||
-            response.headers?.get?.('retry-after') ||
-            1
-          );
-
-          if (attempt < maxRetries) {
-            await sleepFn(retryAfterSec * 1000);
-            continue;
-          }
-
-          return {
-            success: false,
-            error: `Rate limit exceeded (HTTP 429): ${data?.description || 'Too Many Requests'}`
-          };
-        }
-
-        // Handle HTTP 5xx Server Errors (transient)
-        if (response.status >= 500) {
-          let data = null;
-          try {
-            data = await response.json();
-          } catch {}
-
+          lastError = `Telegram API error (HTTP ${response.status}): ${data?.description || response.statusText || 'Client Error'}`;
+          break;
+        } catch (err) {
           if (attempt < maxRetries) {
             const backoffMs = 500 * Math.pow(2, attempt);
             await sleepFn(backoffMs);
             continue;
           }
 
-          return {
-            success: false,
-            error: `Telegram server error (HTTP ${response.status}): ${data?.description || response.statusText || 'Server Error'}`
-          };
-        }
-
-        // Handle HTTP 4xx Client Errors (non-transient, fail immediately without retry)
-        let data = null;
-        try {
-          data = await response.json();
-        } catch {}
-
-        return {
-          success: false,
-          error: `Telegram API error (HTTP ${response.status}): ${data?.description || response.statusText || 'Client Error'}`
-        };
-      } catch (err) {
-        if (attempt < maxRetries) {
-          const backoffMs = 500 * Math.pow(2, attempt);
-          await sleepFn(backoffMs);
-          continue;
-        }
-
-        const isTimeout = err?.name === 'TimeoutError' || err?.name === 'AbortError';
-        return {
-          success: false,
-          error: isTimeout
+          const isTimeout = err?.name === 'TimeoutError' || err?.name === 'AbortError';
+          lastError = isTimeout
             ? `Request timed out after ${timeoutMs}ms`
-            : `Network error: ${err.message || String(err)}`
-        };
+            : `Network error: ${err.message || String(err)}`;
+          break;
+        }
       }
+
+      if (chatSuccess) {
+        anySuccess = true;
+        if (!primaryResult) {
+          primaryResult = { success: true, messageId: chatMessageId };
+        }
+      }
+    }
+
+    if (anySuccess) {
+      return primaryResult;
     }
 
     return {
       success: false,
-      error: 'Max retries exceeded'
+      error: lastError || 'Failed to dispatch Telegram message to all destinations'
     };
   } catch (outerErr) {
     return {

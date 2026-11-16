@@ -1234,7 +1234,7 @@ function renderWebDashboard(qrDataUrl) {
         const t = document.getElementById('mTeamName'); if (t) { t.value = ''; t.disabled = false; }
         const nt = document.getElementById('mNoTeam'); if (nt) nt.checked = false;
         const c = document.getElementById('mCaptainName'); if (c) c.value = '';
-        const p = document.getElementById('mCaptainPhone'); if (p) p.value = '';
+        const p = document.getElementById('mCaptainPhone'); if (p) p.value = '+7 ';
         const pl = document.getElementById('mPlayersCount'); if (pl) pl.value = '6';
         const n = document.getElementById('mNotes'); if (n) n.value = '';
         document.getElementById('mTeamName')?.focus();
@@ -1249,7 +1249,7 @@ function renderWebDashboard(qrDataUrl) {
       const t = document.getElementById('mTeamName'); if (t) { t.value = ''; t.disabled = false; }
       const nt = document.getElementById('mNoTeam'); if (nt) nt.checked = false;
       const c = document.getElementById('mCaptainName'); if (c) c.value = '';
-      const p = document.getElementById('mCaptainPhone'); if (p) p.value = '';
+      const p = document.getElementById('mCaptainPhone'); if (p) p.value = '+7 ';
       const pl = document.getElementById('mPlayersCount'); if (pl) pl.value = '6';
       const n = document.getElementById('mNotes'); if (n) n.value = '';
     }
@@ -1281,6 +1281,16 @@ function renderWebDashboard(qrDataUrl) {
           errEl.innerText = 'Пожалуйста, заполните все обязательные поля';
           errEl.style.display = 'block';
         }
+        return;
+      }
+
+      const pDigits = captainPhone.replace(/\D/g, '');
+      if (pDigits.length < 11) {
+        if (errEl) {
+          errEl.innerText = 'Пожалуйста, введите полный номер WhatsApp (+7 7XX XXX-XX-XX)';
+          errEl.style.display = 'block';
+        }
+        document.getElementById('mCaptainPhone')?.focus();
         return;
       }
 
@@ -1686,6 +1696,73 @@ function renderWebDashboard(qrDataUrl) {
       }
     }
 
+    function formatKazakhPhoneValue(val) {
+      let digits = String(val || '').replace(/\D/g, '');
+      if (digits.length === 11 && digits.startsWith('8')) {
+        digits = '7' + digits.slice(1);
+      } else if (digits.length === 10) {
+        digits = '7' + digits;
+      } else if (!digits.startsWith('7')) {
+        digits = '7' + digits;
+      }
+      digits = digits.slice(0, 11);
+
+      let formatted = '+7';
+      if (digits.length > 1) {
+        formatted += ' (' + digits.slice(1, Math.min(4, digits.length));
+        if (digits.length >= 4) {
+          formatted += ') ' + digits.slice(4, Math.min(7, digits.length));
+          if (digits.length >= 7) {
+            formatted += '-' + digits.slice(7, Math.min(9, digits.length));
+            if (digits.length >= 9) {
+              formatted += '-' + digits.slice(9, 11);
+            }
+          }
+        }
+      }
+      return formatted;
+    }
+
+    function attachPhoneMask(el) {
+      if (!el) return;
+      if (!el.value || !el.value.startsWith('+7')) {
+        el.value = '+7 ';
+      }
+
+      el.addEventListener('focus', () => {
+        if (!el.value || el.value.trim() === '+7' || !el.value.startsWith('+7')) {
+          el.value = '+7 ';
+        }
+      });
+
+      el.addEventListener('keydown', (e) => {
+        if ((e.key === 'Backspace' || e.key === 'Delete') && el.selectionStart <= 3 && el.selectionEnd <= 3) {
+          e.preventDefault();
+        }
+      });
+
+      el.addEventListener('input', () => {
+        const raw = el.value;
+        const digits = raw.replace(/\D/g, '');
+        if (digits.length === 0) {
+          el.value = '+7 ';
+          return;
+        }
+        el.value = formatKazakhPhoneValue(raw);
+      });
+
+      el.addEventListener('blur', () => {
+        if (el.value.trim() === '+7' || el.value.trim() === '+7 (') {
+          el.value = '+7 ';
+        }
+      });
+    }
+
+    document.addEventListener('DOMContentLoaded', () => {
+      attachPhoneMask(document.getElementById('mCaptainPhone'));
+    });
+    setTimeout(() => attachPhoneMask(document.getElementById('mCaptainPhone')), 50);
+
     setInterval(checkStatusAndQr, 4000);
   </script>
 </head>
@@ -1966,7 +2043,7 @@ function renderWebDashboard(qrDataUrl) {
           </div>
           <div class="form-group">
             <label class="form-label">Телефон (WhatsApp) <span class="req">*</span></label>
-            <input type="tel" id="mCaptainPhone" class="form-input" required placeholder="+7 777 123 45 67">
+            <input type="tel" id="mCaptainPhone" class="form-input" required value="+7 " placeholder="+7 (701) 186-31-90" maxlength="18">
           </div>
         </div>
         <div class="form-row">
@@ -2581,14 +2658,20 @@ async function handleWebRequest(req, res) {
           return;
         }
 
-        const digits = String(rawPhone).replace(/\D/g, '');
-        if (digits.length < 10) {
+        let digits = String(rawPhone).replace(/\D/g, '');
+        if (digits.length === 11 && digits.startsWith('8')) {
+          digits = '7' + digits.slice(1);
+        } else if (digits.length === 10) {
+          digits = '7' + digits;
+        }
+
+        if (digits.length < 11 || !digits.startsWith('7')) {
           res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ ok: false, error: 'Некорректный номер телефона. Укажите минимум 10 цифр номера' }));
+          res.end(JSON.stringify({ ok: false, error: 'Некорректный номер телефона. Укажите номер в формате +7 (7XX) XXX-XX-XX' }));
           return;
         }
 
-        const normPhone = normalizePhone(rawPhone);
+        const normPhone = '+' + digits;
 
         // 1. Create booking in DB
         const booking = db.bookings.create({
@@ -2713,10 +2796,19 @@ async function handleWebRequest(req, res) {
         if (isNoTeam && !notes.includes('ИЩЕТ КОМАНДУ')) {
           notes = ('[ИЩЕТ КОМАНДУ] ' + notes).trim();
         }
+        let rawPhone = (payload.captainPhone || payload.captain_phone || '').trim();
+        let digits = String(rawPhone).replace(/\D/g, '');
+        if (digits.length === 11 && digits.startsWith('8')) {
+          digits = '7' + digits.slice(1);
+        } else if (digits.length === 10) {
+          digits = '7' + digits;
+        }
+        const cleanPhone = digits ? ('+' + digits) : rawPhone;
+
         const booking = db.bookings.create({
           teamName: isNoTeam ? 'Ищу команду' : (teamName || captainName),
           captainName: captainName || teamName,
-          captainPhone: payload.captainPhone || payload.captain_phone,
+          captainPhone: cleanPhone,
           playersCount: isNoTeam ? 1 : (payload.playersCount || payload.players_count || 5),
           gameTitle: payload.gameTitle || payload.game_title,
           gameDate: payload.gameDate || payload.game_date,
