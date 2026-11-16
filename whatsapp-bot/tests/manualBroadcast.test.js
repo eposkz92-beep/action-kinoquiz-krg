@@ -7,6 +7,7 @@ import {
   resolveBroadcastRecipients,
   executeManualBroadcast
 } from '../src/broadcast/manualBroadcast.js';
+import { personalizeMessage } from '../src/broadcast/broadcaster.js';
 
 describe('Manual / Ad-hoc Broadcast Engine', () => {
   let db;
@@ -327,5 +328,15 @@ describe('Manual / Ad-hoc Broadcast Engine', () => {
     assert.ok(!capturedTemplate.includes('ACTION КИНОКВИЗ — ВАЖНОЕ СООБЩЕНИЕ'));
     assert.ok(!capturedTemplate.includes('Караоке-бар «То Место»'));
     assert.strictEqual(capturedParams.text, freeText);
+  });
+
+  it('12. personalizeMessage with freeform text supports {{captain}} placeholder or untouched arbitrary text', () => {
+    const rawText = 'Привет, {{captain}}! Игра перенесена на завтра.';
+    const formatted = personalizeMessage(rawText, { captain: 'Алексей' });
+    assert.strictEqual(formatted, 'Привет, Алексей! Игра перенесена на завтра.');
+
+    const plainText = 'Произвольный текст без тегов вообще: встречаемся у входа в 19:20!';
+    const plainFormatted = personalizeMessage(plainText, { captain: 'Алексей' });
+    assert.strictEqual(plainFormatted, plainText);
   });
 });

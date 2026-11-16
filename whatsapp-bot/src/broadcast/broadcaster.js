@@ -68,6 +68,10 @@ export function phoneToJid(phone) {
  */
 export function personalizeMessage(template, params = {}) {
   if (typeof template !== 'string') return '';
+  let text = template;
+  if (/\{\{\s*text\s*\}\}/i.test(text)) {
+    text = text.replace(/\{\{\s*text\s*\}\}/gi, params.text !== undefined ? String(params.text) : '');
+  }
   const lookup = {
     captain: params.captain || params.captainName || params.name || '',
     team: params.team || params.teamName || '',
@@ -81,7 +85,7 @@ export function personalizeMessage(template, params = {}) {
     ...params
   };
 
-  return template.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (match, key) => {
+  return text.replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (match, key) => {
     if (key in lookup) return String(lookup[key]);
     const lowerKey = key.toLowerCase();
     for (const [k, v] of Object.entries(lookup)) {

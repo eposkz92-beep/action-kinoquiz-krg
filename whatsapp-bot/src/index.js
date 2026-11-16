@@ -216,13 +216,22 @@ function renderWebDashboard(qrDataUrl) {
       ? '<span class="badge badge-red">Отменена</span>'
       : '<span class="badge badge-emerald">✅ Подтверждена</span>';
 
+    const isNoTeam = Boolean(
+      (b.notes && b.notes.includes('ИЩЕТ КОМАНДУ')) ||
+      (b.team_name && b.team_name.toLowerCase().includes('ищу команду')) ||
+      b.no_team
+    );
+
     return `
-      <tr id="booking-row-${b.id}" class="booking-row" data-game="${escapeHtml(b.game_title || '')}" data-players="${players}" data-sum="${sum}">
+      <tr id="booking-row-${b.id}" class="booking-row ${isNoTeam ? 'row-no-team' : ''}" data-game="${escapeHtml(b.game_title || '')}" data-players="${players}" data-sum="${sum}" ${isNoTeam ? 'style="background:rgba(245, 158, 11, 0.06);"' : ''}>
         <td class="cell-center text-muted"><b>${b.id || (i + 1)}</b></td>
         <td class="cell-date">${escapeHtml(formatBookingDate(b.created_at))}</td>
-        <td class="cell-team"><span class="team-name">${escapeHtml(b.team_name)}</span></td>
+        <td class="cell-team">
+          <span class="team-name">${escapeHtml(b.team_name)}</span>
+          ${isNoTeam ? '<br><span class="badge" style="background:#f59e0b;color:#000;font-weight:700;font-size:11px;padding:2px 6px;border-radius:4px;margin-top:3px;display:inline-block">🔍 ИЩЕТ КОМАНДУ</span>' : ''}
+        </td>
         <td class="cell-center"><span class="players-pill">👥 ${players} чел.</span></td>
-        <td class="cell-captain">${escapeHtml(b.captain_name)}</td>
+        <td class="cell-captain"><b>${escapeHtml(b.captain_name)}</b></td>
         <td class="cell-phone">
           <span class="phone-num">${escapeHtml(rawPhone)}</span>
           ${digits ? `<a href="${waUrl}" target="_blank" class="wa-btn" title="Написать капитану в WhatsApp">💬 WhatsApp</a>` : ''}
@@ -1206,11 +1215,24 @@ function renderWebDashboard(qrDataUrl) {
       if (fSum) fSum.innerText = visibleSum.toLocaleString('ru-RU') + ' ₸';
     }
 
+    function toggleManualNoTeam(checked) {
+      const t = document.getElementById('mTeamName');
+      const pl = document.getElementById('mPlayersCount');
+      if (checked) {
+        if (t) { t.value = 'Ищу команду'; t.disabled = true; }
+        if (pl) pl.value = '1';
+      } else {
+        if (t) { t.value = ''; t.disabled = false; }
+        if (pl) pl.value = '5';
+      }
+    }
+
     function openBookingModal() {
       const modal = document.getElementById('bookingModal');
       if (modal) {
         modal.style.display = 'flex';
-        const t = document.getElementById('mTeamName'); if (t) t.value = '';
+        const t = document.getElementById('mTeamName'); if (t) { t.value = ''; t.disabled = false; }
+        const nt = document.getElementById('mNoTeam'); if (nt) nt.checked = false;
         const c = document.getElementById('mCaptainName'); if (c) c.value = '';
         const p = document.getElementById('mCaptainPhone'); if (p) p.value = '';
         const pl = document.getElementById('mPlayersCount'); if (pl) pl.value = '6';
@@ -1224,7 +1246,8 @@ function renderWebDashboard(qrDataUrl) {
       if (modal) modal.style.display = 'none';
       const errEl = document.getElementById('modalError');
       if (errEl) errEl.style.display = 'none';
-      const t = document.getElementById('mTeamName'); if (t) t.value = '';
+      const t = document.getElementById('mTeamName'); if (t) { t.value = ''; t.disabled = false; }
+      const nt = document.getElementById('mNoTeam'); if (nt) nt.checked = false;
       const c = document.getElementById('mCaptainName'); if (c) c.value = '';
       const p = document.getElementById('mCaptainPhone'); if (p) p.value = '';
       const pl = document.getElementById('mPlayersCount'); if (pl) pl.value = '6';
@@ -1237,15 +1260,23 @@ function renderWebDashboard(qrDataUrl) {
       const submitBtn = document.getElementById('mSubmitBtn');
       if (errEl) errEl.style.display = 'none';
 
-      const teamName = document.getElementById('mTeamName')?.value.trim();
+      const noTeam = Boolean(document.getElementById('mNoTeam')?.checked);
+      let teamName = document.getElementById('mTeamName')?.value.trim();
       const captainName = document.getElementById('mCaptainName')?.value.trim();
       const captainPhone = document.getElementById('mCaptainPhone')?.value.trim();
-      const playersCount = parseInt(document.getElementById('mPlayersCount')?.value, 10) || 5;
+      let playersCount = parseInt(document.getElementById('mPlayersCount')?.value, 10) || 5;
+      if (noTeam) {
+        teamName = 'Ищу команду';
+        playersCount = 1;
+      }
       const gameRaw = document.getElementById('mGameSelect')?.value || '';
       const [gameTitle, gameDate] = gameRaw.split('|');
-      const notes = document.getElementById('mNotes')?.value.trim() || '';
+      let notes = document.getElementById('mNotes')?.value.trim() || '';
+      if (noTeam && !notes.includes('ИЩЕТ КОМАНДУ')) {
+        notes = ('[ИЩЕТ КОМАНДУ] ' + notes).trim();
+      }
 
-      if (!teamName || !captainName || !captainPhone) {
+      if ((!teamName && !noTeam) || !captainName || !captainPhone) {
         if (errEl) {
           errEl.innerText = 'Пожалуйста, заполните все обязательные поля';
           errEl.style.display = 'block';
@@ -1271,7 +1302,8 @@ function renderWebDashboard(qrDataUrl) {
             gameDate,
             source: 'web',
             status: 'confirmed',
-            notes
+            notes,
+            noTeam
           })
         });
 
@@ -1923,10 +1955,14 @@ function renderWebDashboard(qrDataUrl) {
           <label class="form-label">Название команды <span class="req">*</span></label>
           <input type="text" id="mTeamName" class="form-input" required placeholder="Например: Акацуки, Томас Шелби">
         </div>
+        <div class="form-group" style="margin-top:-6px;margin-bottom:12px;background:rgba(255,255,255,0.03);padding:8px 12px;border-radius:8px;border:1px solid rgba(255,255,255,0.06);display:flex;align-items:center;gap:8px;">
+          <input type="checkbox" id="mNoTeam" style="width:16px;height:16px;cursor:pointer;accent-color:#f59e0b;" onchange="toggleManualNoTeam(this.checked)">
+          <label for="mNoTeam" style="margin:0;font-size:12.5px;cursor:pointer;color:var(--text);font-weight:normal;">🙋 Игрок без команды (ищет команду / подобрать состав)</label>
+        </div>
         <div class="form-row">
           <div class="form-group">
-            <label class="form-label">Имя капитана <span class="req">*</span></label>
-            <input type="text" id="mCaptainName" class="form-input" required placeholder="Имя капитана">
+            <label class="form-label">Имя капитана / игрока <span class="req">*</span></label>
+            <input type="text" id="mCaptainName" class="form-input" required placeholder="Имя капитана или игрока">
           </div>
           <div class="form-group">
             <label class="form-label">Телефон (WhatsApp) <span class="req">*</span></label>
@@ -2471,18 +2507,40 @@ async function handleWebRequest(req, res) {
     req.on('end', async () => {
       try {
         const payload = JSON.parse(body || '{}');
-        const teamName = (payload.teamName || payload.team_name || payload.team || '').trim();
-        const captainName = (payload.captainName || payload.captain_name || payload.captain || '').trim();
+        const isNoTeam = Boolean(
+          payload.noTeam ||
+          payload.no_team ||
+          (payload.notes && payload.notes.includes('ИЩЕТ КОМАНДУ')) ||
+          payload.teamName === 'Ищу команду' ||
+          payload.team === 'Ищу команду'
+        );
+        let teamName = (payload.teamName || payload.team_name || payload.team || '').trim();
+        let captainName = (payload.captainName || payload.captain_name || payload.captain || '').trim();
+
+        if (isNoTeam) {
+          if (!teamName || teamName === 'Ищу команду') {
+            teamName = 'Ищу команду';
+          }
+          if (!captainName) {
+            captainName = 'Игрок без команды';
+          }
+        } else if (!teamName && captainName) {
+          teamName = captainName;
+        }
+
         const rawPhone = (payload.captainPhone || payload.captain_phone || payload.phone || '').trim();
-        let rawPlayers = payload.playersCount || payload.players_count || payload.players || 6;
+        let rawPlayers = payload.playersCount || payload.players_count || payload.players || (isNoTeam ? 1 : 6);
         if (typeof rawPlayers === 'string') {
           const matchNum = rawPlayers.match(/\d+/);
-          rawPlayers = matchNum ? parseInt(matchNum[0], 10) : 6;
+          rawPlayers = matchNum ? parseInt(matchNum[0], 10) : (isNoTeam ? 1 : 6);
         }
-        const playersCount = isNaN(rawPlayers) || rawPlayers <= 0 ? 6 : rawPlayers;
+        const playersCount = isNaN(rawPlayers) || rawPlayers <= 0 ? (isNoTeam ? 1 : 6) : rawPlayers;
         let gameTitle = (payload.gameTitle || payload.game_title || payload.game || '').trim();
         let gameDate = (payload.gameDate || payload.game_date || payload.date || '').trim();
-        const notes = (payload.notes || payload.comment || payload.league || '').trim();
+        let notes = (payload.notes || payload.comment || payload.league || '').trim();
+        if (isNoTeam && !notes.includes('ИЩЕТ КОМАНДУ')) {
+          notes = ('[ИЩЕТ КОМАНДУ] ' + notes).trim();
+        }
 
         // Smart game date extraction if not provided directly
         if (!gameDate && gameTitle.includes('(')) {
@@ -2511,9 +2569,9 @@ async function handleWebRequest(req, res) {
           gameDate = gameTitle.toLowerCase().includes('аним') ? '24 ноября 2026 в 19:30' : '17 ноября 2026 в 19:30';
         }
 
-        if (!teamName) {
+        if (!teamName && !captainName) {
           res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ ok: false, error: 'Пожалуйста, укажите название команды' }));
+          res.end(JSON.stringify({ ok: false, error: 'Пожалуйста, укажите название команды или ваше имя' }));
           return;
         }
 
@@ -2534,10 +2592,10 @@ async function handleWebRequest(req, res) {
 
         // 1. Create booking in DB
         const booking = db.bookings.create({
-          teamName,
+          teamName: isNoTeam ? 'Ищу команду' : teamName,
           captainName: captainName || teamName,
           captainPhone: normPhone,
-          playersCount,
+          playersCount: isNoTeam ? 1 : playersCount,
           gameTitle: gameTitle || 'ACTION Киноквиз',
           gameDate: gameDate,
           source: 'website',
@@ -2552,7 +2610,7 @@ async function handleWebRequest(req, res) {
               phone: normPhone,
               name: captainName || teamName,
               teamName: teamName,
-              role: 'captain'
+              role: isNoTeam ? 'player' : 'captain'
             });
           } catch (cErr) {
             logger.warn({ cErr: cErr.message }, 'Failed to upsert contact from website booking');
@@ -2567,21 +2625,37 @@ async function handleWebRequest(req, res) {
             if (captainJid) {
               const greetingName = captainName ? `, ${captainName}` : '';
               const datePart = booking.game_date ? ` (${booking.game_date})` : '';
-              const confirmationText = [
-                `🎉 *Здравствуйте${greetingName}!*`,
-                '',
-                `Ваша бронь стола на *ACTION Киноквиз* успешно принята! 🎬🍿`,
-                '',
-                `👥 *Команда:* «${teamName}»`,
-                `♟️ *Количество игроков:* ${booking.players_count} чел.`,
-                `📅 *Игра:* ${booking.game_title}${datePart}`,
-                `📍 *Место:* ${config.quiz?.location || 'Караоке-бар «То Место» (пр. Нуркена Абдирова, 5)'}`,
-                `💰 *Взнос:* 3 000 ₸ с игрока`,
-                '',
-                `Стол закреплён за вашей командой! Ждём вас к 19:30! ✨`,
-                '',
-                `_Если изменятся планы или состав команды — просто напишите нам в ответ на это сообщение._`
-              ].join('\n');
+              const confirmationText = isNoTeam
+                ? [
+                    `🎉 *Здравствуйте${greetingName}!*`,
+                    '',
+                    `Ваша заявка на *ACTION Киноквиз* успешно принята! 🎬🍿`,
+                    '',
+                    `🙋‍♂️ *Статус:* 🔍 *Игрок без команды (подбираем состав)*`,
+                    `♟️ *Количество участников:* 1 чел.`,
+                    `📅 *Игра:* ${booking.game_title}${datePart}`,
+                    `📍 *Место:* ${config.quiz?.location || 'Караоке-бар «То Место» (пр. Нуркена Абдирова, 5)'}`,
+                    `💰 *Взнос:* 3 000 ₸ с игрока`,
+                    '',
+                    `Организаторы подберут вам классную команду перед началом игры к 19:30! ✨`,
+                    '',
+                    `_Если возникнут вопросы или изменятся планы — просто ответьте на это сообщение._`
+                  ].join('\n')
+                : [
+                    `🎉 *Здравствуйте${greetingName}!*`,
+                    '',
+                    `Ваша бронь стола на *ACTION Киноквиз* успешно принята! 🎬🍿`,
+                    '',
+                    `👥 *Команда:* «${teamName}»`,
+                    `♟️ *Количество игроков:* ${booking.players_count} чел.`,
+                    `📅 *Игра:* ${booking.game_title}${datePart}`,
+                    `📍 *Место:* ${config.quiz?.location || 'Караоке-бар «То Место» (пр. Нуркена Абдирова, 5)'}`,
+                    `💰 *Взнос:* 3 000 ₸ с игрока`,
+                    '',
+                    `Стол закреплён за вашей командой! Ждём вас к 19:30! ✨`,
+                    '',
+                    `_Если изменятся планы или состав команды — просто напишите нам в ответ на это сообщение._`
+                  ].join('\n');
 
               await currentSock.sendMessage(captainJid, { text: confirmationText });
               waSent = true;
@@ -2626,17 +2700,41 @@ async function handleWebRequest(req, res) {
     req.on('end', async () => {
       try {
         const payload = JSON.parse(body || '{}');
+        const isNoTeam = Boolean(
+          payload.noTeam ||
+          payload.no_team ||
+          (payload.notes && payload.notes.includes('ИЩЕТ КОМАНДУ')) ||
+          payload.teamName === 'Ищу команду' ||
+          payload.team_name === 'Ищу команду'
+        );
+        let teamName = (payload.teamName || payload.team_name || (isNoTeam ? 'Ищу команду' : '')).trim();
+        let captainName = (payload.captainName || payload.captain_name || (isNoTeam ? 'Игрок без команды' : teamName)).trim();
+        let notes = (payload.notes || '').trim();
+        if (isNoTeam && !notes.includes('ИЩЕТ КОМАНДУ')) {
+          notes = ('[ИЩЕТ КОМАНДУ] ' + notes).trim();
+        }
         const booking = db.bookings.create({
-          teamName: payload.teamName || payload.team_name,
-          captainName: payload.captainName || payload.captain_name,
+          teamName: isNoTeam ? 'Ищу команду' : (teamName || captainName),
+          captainName: captainName || teamName,
           captainPhone: payload.captainPhone || payload.captain_phone,
-          playersCount: payload.playersCount || payload.players_count,
+          playersCount: isNoTeam ? 1 : (payload.playersCount || payload.players_count || 5),
           gameTitle: payload.gameTitle || payload.game_title,
           gameDate: payload.gameDate || payload.game_date,
           source: payload.source || 'web',
           status: payload.status || 'confirmed',
-          notes: payload.notes || ''
+          notes
         });
+
+        if (db.contacts && booking.captain_phone) {
+          try {
+            db.contacts.upsert({
+              phone: normalizePhone(booking.captain_phone),
+              name: booking.captain_name,
+              teamName: booking.team_name,
+              role: isNoTeam ? 'player' : 'captain'
+            });
+          } catch (cErr) {}
+        }
 
         let telegramResult = null;
         try {

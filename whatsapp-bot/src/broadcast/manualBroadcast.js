@@ -222,7 +222,7 @@ export async function executeManualBroadcast({
     newDate,
     newTime,
     reason,
-    overrideTemplate
+    overrideTemplate: overrideTemplate || (type === 'freeform' ? customText : null)
   });
 
   let recipients = [];

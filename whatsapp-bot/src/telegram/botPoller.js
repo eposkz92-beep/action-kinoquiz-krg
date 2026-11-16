@@ -183,8 +183,16 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames, b
         const isWeb = b.source === 'web' || b.source === 'website';
         const sourceTag = isWeb ? ' • 🌐 <b>[Сайт]</b>' : ' • 💬 <i>[WhatsApp]</i>';
         const gameDateStr = b.game_date ? ` • 📅 <b>${escapeHtml(b.game_date)}</b>` : '';
+        const isNoTeam = Boolean(
+          (b.notes && b.notes.includes('ИЩЕТ КОМАНДУ')) ||
+          (b.team_name && b.team_name.toLowerCase().includes('ищу команду')) ||
+          b.no_team
+        );
+        const teamTag = isNoTeam
+          ? `🔍 <b>[ИЩЕТ КОМАНДУ]</b> «${escapeHtml(b.team_name)}»`
+          : `«${escapeHtml(b.team_name)}»`;
 
-        lines.push(`<b>${i + 1}. «${escapeHtml(b.team_name)}»</b> ${statusIcon} — 👥 <b>${players} чел.</b> (${fee.toLocaleString('ru-RU')} ₸)`);
+        lines.push(`<b>${i + 1}. ${teamTag}</b> ${statusIcon} — 👥 <b>${players} чел.</b> (${fee.toLocaleString('ru-RU')} ₸)`);
         lines.push(`   👤 ${escapeHtml(b.captain_name)} • 📱 ${waLink}${sourceTag}`);
         if (!filterGame) {
           lines.push(`   🎬 <i>${escapeHtml(b.game_title)}</i>${gameDateStr}`);
@@ -1002,7 +1010,7 @@ export function startTelegramPoller({ db, config, logger, syncRepositoryGames, b
         newDate: session.newDate,
         newTime: session.newTime,
         reason: session.reason,
-        overrideTemplate: session.overrideTemplate || null,
+        overrideTemplate: session.overrideTemplate || (session.type === 'freeform' ? session.customText : null),
         telegramAlertFn: (payload) => sendBroadcastLaunchAlert(payload)
       });
 

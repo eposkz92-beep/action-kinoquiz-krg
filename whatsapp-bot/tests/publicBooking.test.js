@@ -99,4 +99,41 @@ test('Public Website Booking API Logic Test Suite', async (t) => {
     const jid = phoneToJid(norm);
     assert.equal(jid, '77011863190@s.whatsapp.net');
   });
+
+  await t.test('5. Handles single player booking without a team (noTeam: true)', () => {
+    const normPhone = normalizePhone('+7 705 333 22 11');
+    const captainName = 'Алина';
+    const noTeam = true;
+    const teamName = noTeam ? 'Ищу команду' : 'ДНК';
+    const playersCount = noTeam ? 1 : 6;
+    const notes = '[ИЩЕТ КОМАНДУ] Лига: Падаваны';
+
+    const booking = db.bookings.create({
+      teamName,
+      captainName,
+      captainPhone: normPhone,
+      playersCount,
+      gameTitle: 'Киномарафон: 100 вопросов',
+      gameDate: '17 ноября',
+      source: 'website',
+      status: 'confirmed',
+      notes
+    });
+
+    assert.equal(booking.team_name, 'Ищу команду');
+    assert.equal(booking.captain_name, 'Алина');
+    assert.equal(booking.players_count, 1);
+    assert.ok(booking.notes.includes('ИЩЕТ КОМАНДУ'));
+
+    db.contacts.upsert({
+      phone: normPhone,
+      name: captainName,
+      teamName,
+      role: 'player'
+    });
+
+    const contact = db.contacts.getByPhone(normPhone);
+    assert.equal(contact.name, 'Алина');
+    assert.equal(contact.team_name, 'Ищу команду');
+  });
 });

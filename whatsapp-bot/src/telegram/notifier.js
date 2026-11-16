@@ -128,9 +128,20 @@ export function formatBookingAlert(booking, options = {}) {
   const createdAt = b.created_at || b.createdAt || new Date();
 
   const isWeb = source === 'website' || source === 'web' || Boolean(options.isWebBooking);
-  const header = isWeb
-    ? '🌐 <b>НОВАЯ ЗАЯВКА С САЙТА — ACTION КИНОКВИЗ</b>'
-    : '🎟️ <b>НОВАЯ БРОНЬ СТОЛА — ACTION КИНОКВИЗ</b>';
+  const isNoTeam = Boolean(
+    b.no_team ||
+    b.noTeam ||
+    (notes && notes.includes('ИЩЕТ КОМАНДУ')) ||
+    teamName === 'Ищу команду' ||
+    teamName.toLowerCase().includes('ищу команду') ||
+    teamName.toLowerCase().includes('без команды')
+  );
+
+  const header = isNoTeam
+    ? '⚠️ <b>НОВАЯ ЗАЯВКА: ИГРОК БЕЗ КОМАНДЫ!</b> 🙋‍♂️'
+    : isWeb
+      ? '🌐 <b>НОВАЯ ЗАЯВКА С САЙТА — ACTION КИНОКВИЗ</b>'
+      : '🎟️ <b>НОВАЯ БРОНЬ СТОЛА — ACTION КИНОКВИЗ</b>';
 
   const sourceBadge = isWeb
     ? '🌐 <b>Официальный сайт</b> (онлайн-форма)'
@@ -149,16 +160,25 @@ export function formatBookingAlert(booking, options = {}) {
 
   const lines = [
     header,
-    '',
+    ''
+  ];
+
+  if (isNoTeam) {
+    lines.push('🚨 <b>ВНИМАНИЕ ОРГАНИЗАТОРАМ:</b>');
+    lines.push('👉 <b>У игрока нет команды! Нужно подобрать команду / распределить игрока!</b>');
+    lines.push('');
+  }
+
+  lines.push(
     `🎬 <b>Игра:</b> ${escapeHtml(gameTitle)}`,
     `📅 <b>Дата:</b> ${escapeHtml(gameDate)}`,
     '',
-    `👥 <b>Команда:</b> «${escapeHtml(teamName)}»`,
+    `👥 <b>Команда:</b> «${escapeHtml(teamName)}»${isNoTeam ? ' <i>(нет команды / ищет состав)</i>' : ''}`,
     `🔢 <b>Игроков:</b> ${playersCount} чел. (взнос: ${totalFee} ₸)`,
     '',
     `👤 <b>Капитан:</b> ${escapeHtml(captainName)}`,
     `📱 <b>WhatsApp:</b> ${waLink}`
-  ];
+  );
 
   if (notes) {
     lines.push(`📝 <b>Лига / Примечания:</b> <i>${escapeHtml(notes)}</i>`);

@@ -828,8 +828,21 @@ footer{padding:50px 0 25px;background:#09060f;border-top:1px solid var(--line)}
 
       <form id="regForm" autocomplete="off">
         <div class="field">
-          <label for="team">Название команды (или ваше имя)</label>
-          <input id="team" name="team" placeholder="Например: ДНК, Ошибка 606 или Артём" autocomplete="off" required>
+          <label for="captain">Ваше имя <span style="color:#f59e0b">*</span></label>
+          <input id="captain" name="captain" placeholder="Как вас зовут (например: Алексей)" autocomplete="name" required>
+        </div>
+
+        <div class="field" id="teamFieldGroup">
+          <label for="team" id="teamLabel">Название команды <span style="color:#f59e0b">*</span></label>
+          <input id="team" name="team" placeholder="Например: ДНК, Ошибка 606" autocomplete="off" required>
+        </div>
+
+        <div class="field-checkbox" style="margin-top:-6px;margin-bottom:16px;display:flex;align-items:flex-start;gap:10px;background:rgba(255,255,255,0.04);padding:10px 12px;border-radius:10px;border:1px solid rgba(255,255,255,0.08);">
+          <input type="checkbox" id="noTeam" name="noTeam" style="width:18px;height:18px;margin-top:2px;cursor:pointer;accent-color:#f59e0b;">
+          <label for="noTeam" style="margin:0;font-size:13px;cursor:pointer;color:#e2d9f3;font-weight:normal;line-height:1.4;text-transform:none;">
+            🙋 <b>У меня пока нет команды (ищу команду)</b><br>
+            <span style="font-size:11.5px;color:#9ca3af;">Организаторы подберут вам классную команду прямо перед игрой!</span>
+          </label>
         </div>
 
         <div class="field">
@@ -916,14 +929,52 @@ function escapeHtml(str) {
 function resetBookingForm() {
   const form = document.getElementById('regForm');
   if (form) form.reset();
+  const capInp = document.getElementById('captain');
+  if (capInp) capInp.value = '';
   const teamInp = document.getElementById('team');
-  if (teamInp) teamInp.value = '';
+  if (teamInp) {
+    teamInp.value = '';
+    teamInp.disabled = false;
+    teamInp.required = true;
+    teamInp.placeholder = 'Например: ДНК, Ошибка 606';
+  }
+  const noTeamCb = document.getElementById('noTeam');
+  if (noTeamCb) noTeamCb.checked = false;
   const phoneInp = document.getElementById('phone');
   if (phoneInp) phoneInp.value = '';
   const playersSel = document.getElementById('players');
   if (playersSel) playersSel.selectedIndex = 0;
   const leagueSel = document.getElementById('league');
   if (leagueSel) leagueSel.selectedIndex = 0;
+}
+
+// Dynamic toggle for "No team" checkbox
+const noTeamCheckbox = document.getElementById('noTeam');
+if (noTeamCheckbox) {
+  noTeamCheckbox.addEventListener('change', () => {
+    const teamInp = document.getElementById('team');
+    const playersSel = document.getElementById('players');
+    if (noTeamCheckbox.checked) {
+      if (teamInp) {
+        teamInp.value = '';
+        teamInp.disabled = true;
+        teamInp.required = false;
+        teamInp.placeholder = 'Будет подобрана организаторами';
+      }
+      if (playersSel) {
+        playersSel.value = '1 (ищу команду)';
+      }
+    } else {
+      if (teamInp) {
+        teamInp.disabled = false;
+        teamInp.required = true;
+        teamInp.placeholder = 'Например: ДНК, Ошибка 606';
+      }
+      if (playersSel && playersSel.value === '1 (ищу команду)') {
+        playersSel.selectedIndex = 0;
+      }
+    }
+  });
 }
 
 function openModal(game = '') {
@@ -968,8 +1019,16 @@ document.addEventListener('keydown', e => { if (e.key === 'Escape') closeModal()
 document.getElementById('regForm').addEventListener('submit', async e => {
   e.preventDefault();
   const d = new FormData(e.currentTarget);
-  const team = String(d.get('team') || '').trim();
-  const players = String(d.get('players') || '').trim();
+  const captain = String(d.get('captain') || '').trim();
+  const noTeam = Boolean(document.getElementById('noTeam')?.checked);
+  let team = String(d.get('team') || '').trim();
+  if (noTeam || !team) {
+    team = 'Ищу команду';
+  }
+  let players = String(d.get('players') || '').trim();
+  if (noTeam && (!players || players === '')) {
+    players = '1 (ищу команду)';
+  }
   const phone = String(d.get('phone') || '').trim();
   const rawGame = String(d.get('game') || '').trim();
   const league = String(d.get('league') || '').trim();
@@ -999,7 +1058,7 @@ document.getElementById('regForm').addEventListener('submit', async e => {
   const submitBtn = document.getElementById('regSubmitBtn');
   if (submitBtn) {
     submitBtn.disabled = true;
-    submitBtn.textContent = '⏳ Бронируем стол...';
+    submitBtn.textContent = '⏳ Бронируем...';
   }
 
   // Pre-formatted WhatsApp fallback text with themed emojis
@@ -1026,20 +1085,25 @@ document.getElementById('regForm').addEventListener('submit', async e => {
     punchline = 'Эдвард vs Джейкоб — наш выбор сделан, едем в Форкс!';
   }
 
+  const teamLine = noTeam ? '👥 *Команда:* [ИЩУ КОМАНДУ / нет состава]' : `👥 *Команда:* «${team}»`;
+  const playersLine = noTeam ? '♟️ *Количество игроков:* 1 чел. (ищет команду)' : `♟️ *Количество игроков:* ${players} чел.`;
+  const noTeamAlert = noTeam ? '\n⚠️ *СТАТУС:* Игрок без команды (нужно подобрать команду!)\n' : '';
+
   const waFallbackText = [
-    `${headerEmoji} *Здравствуйте! Хотим забронировать стол на ACTION Киноквиз в Караганде!*`,
+    `${headerEmoji} *Здравствуйте! Хотим забронировать место на ACTION Киноквиз в Караганде!*`,
     '',
     `📅 *Выбранная игра:* ${cleanGameTitle} (${gameDate}) ${themeEmoji}`,
-    `💬 *Настрой команды:* ${punchline}`,
-    `👥 *Команда:* «${team}»`,
-    `♟️ *Количество игроков:* ${players} чел.`,
+    `💬 *Настрой:* ${punchline}`,
+    `👤 *Имя / Капитан:* ${captain}`,
+    teamLine,
+    playersLine,
     `🏆 *Лига:* ${league}`,
-    `📱 *Телефон капитана:* ${phone}`,
-    '',
+    `📱 *Телефон:* ${phone}`,
+    noTeamAlert,
     '📍 *Место:* Караоке-бар «То Место» (пр. Нуркена Абдирова, 5)',
     '💰 *Взнос:* 3 000 ₸ с игрока',
-    '🎟️ Ждём подтверждения брони стола!'
-  ].join('\n');
+    '🎟️ Ждём подтверждения брони!'
+  ].filter(Boolean).join('\n');
 
   function openWhatsAppFallback() {
     window.open(`https://wa.me/77011863190?text=${encodeURIComponent(waFallbackText)}`, '_blank', 'noopener');
@@ -1051,6 +1115,8 @@ document.getElementById('regForm').addEventListener('submit', async e => {
   const apiBase = isDirectHost ? '' : (window.KINOQUIZ_API_URL || 'https://136-71-1-182.sslip.io');
   const apiUrl = `${apiBase}/api/public/book`;
 
+  const notesText = (noTeam ? '[ИЩЕТ КОМАНДУ] ' : '') + `Лига: ${league}`;
+
   let apiSuccess = false;
   try {
     const controller = new AbortController();
@@ -1061,12 +1127,13 @@ document.getElementById('regForm').addEventListener('submit', async e => {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         teamName: team,
-        captainName: team,
-        playersCount: players,
+        captainName: captain || team,
+        playersCount: noTeam ? 1 : players,
         captainPhone: phone,
         gameTitle: cleanGameTitle,
         gameDate: gameDate,
-        notes: `Лига: ${league}`,
+        notes: notesText,
+        noTeam: noTeam,
         source: 'website'
       }),
       signal: controller.signal
@@ -1082,7 +1149,11 @@ document.getElementById('regForm').addEventListener('submit', async e => {
 
       const descEl = document.getElementById('successDesc');
       if (descEl) {
-        descEl.innerHTML = `Команда «<b>${escapeHtml(team)}</b>» (${escapeHtml(players)} чел.) записана на «<b>${escapeHtml(cleanGameTitle)}</b>»!<br>📅 <b>Дата проведения:</b> ${escapeHtml(gameDate)}<br><br>📱 Мы отправили подтверждение на ваш номер <b>${escapeHtml(phone)}</b> в WhatsApp.`;
+        if (noTeam) {
+          descEl.innerHTML = `Заявка для игрока <b>${escapeHtml(captain)}</b> (ищет команду) успешно принята на «<b>${escapeHtml(cleanGameTitle)}</b>»!<br>📅 <b>Дата проведения:</b> ${escapeHtml(gameDate)}<br><br>💡 Организаторы подберут вам отличную команду перед игрой!<br>📱 Мы отправили подтверждение на ваш номер <b>${escapeHtml(phone)}</b> в WhatsApp.`;
+        } else {
+          descEl.innerHTML = `Команда «<b>${escapeHtml(team)}</b>» (${escapeHtml(players)} чел., капитан <b>${escapeHtml(captain)}</b>) записана на «<b>${escapeHtml(cleanGameTitle)}</b>»!<br>📅 <b>Дата проведения:</b> ${escapeHtml(gameDate)}<br><br>📱 Мы отправили подтверждение на ваш номер <b>${escapeHtml(phone)}</b> в WhatsApp.`;
+        }
       }
       resetBookingForm();
     }

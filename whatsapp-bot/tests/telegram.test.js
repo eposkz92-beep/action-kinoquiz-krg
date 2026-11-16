@@ -523,4 +523,23 @@ test('Telegram Alerts Test Suite (Milestone M3)', async (t) => {
     const allRecipients = resolveBroadcastRecipients({ db: mockDb, target: 'all' });
     assert.equal(allRecipients.length, 2);
   });
+
+  await t.test('14. formatBookingAlert prominently highlights players without a team', () => {
+    const noTeamBooking = {
+      id: 77,
+      team_name: 'Ищу команду',
+      captain_name: 'Арман',
+      captain_phone: '+7 701 555 44 33',
+      players_count: 1,
+      game_title: 'Киномарафон: 100 вопросов',
+      game_date: '17 ноября',
+      notes: '[ИЩЕТ КОМАНДУ] Лига: Падаваны',
+      source: 'website'
+    };
+    const alertHtml = formatBookingAlert(noTeamBooking);
+    assert.match(alertHtml, /⚠️ <b>НОВАЯ ЗАЯВКА: ИГРОК БЕЗ КОМАНДЫ!<\/b> 🙋‍♂️/);
+    assert.match(alertHtml, /🚨 <b>ВНИМАНИЕ ОРГАНИЗАТОРАМ:<\/b>/);
+    assert.match(alertHtml, /👉 <b>У игрока нет команды! Нужно подобрать команду \/ распределить игрока!<\/b>/);
+    assert.match(alertHtml, /👤 <b>Капитан:<\/b> Арман/);
+  });
 });
