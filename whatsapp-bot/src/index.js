@@ -1423,20 +1423,18 @@ function renderWebDashboard(qrDataUrl) {
         return;
       }
 
-      listEl.innerHTML = filtered.map(r => {
-        const safePhone = (r.phone || '').replace(/"/g, '&quot;');
-        const safeTeam = (r.team || 'Команда').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        const safeName = (r.name || 'Капитан').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        const safeTag = (r.game ? r.game.slice(0, 22) : 'База').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-        return `
-          <label class="recipient-item">
-            <input type="checkbox" class="bc-recipient-checkbox" value="${safePhone}" checked onchange="onRecipientCheckChanged()">
-            <span class="recipient-phone">${safePhone}</span>
-            <span class="recipient-team">«${safeTeam}»</span>
-            <span class="recipient-captain">(${safeName})</span>
-            <span class="recipient-tag">${safeTag}</span>
-          </label>
-        `;
+      listEl.innerHTML = filtered.map(function(r) {
+        var safePhone = (r.phone || '').replace(/"/g, '&quot;');
+        var safeTeam = (r.team || 'Команда').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        var safeName = (r.name || 'Капитан').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        var safeTag = (r.game ? r.game.slice(0, 22) : 'База').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+        return '<label class="recipient-item">' +
+          '<input type="checkbox" class="bc-recipient-checkbox" value="' + safePhone + '" checked onchange="onRecipientCheckChanged()">' +
+          '<span class="recipient-phone">' + safePhone + '</span>' +
+          '<span class="recipient-team">«' + safeTeam + '»</span>' +
+          '<span class="recipient-captain">(' + safeName + ')</span>' +
+          '<span class="recipient-tag">' + safeTag + '</span>' +
+        '</label>';
       }).join('');
 
       if (badgeEl) badgeEl.innerText = '(' + currentRecipients.length + ' ном.)';
