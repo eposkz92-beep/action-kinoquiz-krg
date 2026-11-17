@@ -7,6 +7,20 @@
 <meta name="description" content="ACTION Киноквиз в Караганде — интеллектуальный баттл для киноманов в караоке-баре «То Место» (пр. Нуркена Абдирова, 5). Собирай команду от 2 до 10 человек или приходи один!">
 <title>ACTION Киноквиз — Караганда | Интеллектуальный баттл для киноманов</title>
 <link rel="icon" type="image/png" href="assets/images/logo.png">
+
+<!-- Yandex.Metrika counter -->
+<script type="text/javascript">
+    (function(m,e,t,r,i,k,a){
+        m[i]=m[i]||function(){(m[i].a=m[i].a||[]).push(arguments)};
+        m[i].l=1*new Date();
+        for (var j = 0; j < document.scripts.length; j++) {if (document.scripts[j].src === r) { return; }}
+        k=e.createElement(t),a=e.getElementsByTagName(t)[0],k.async=1,k.src=r,a.parentNode.insertBefore(k,a)
+    })(window, document,'script','https://mc.yandex.ru/metrika/tag.js?id=114300249', 'ym');
+
+    ym(114300249, 'init', {ssr:true, webvisor:true, clickmap:true, ecommerce:"dataLayer", referrer: document.referrer, url: location.href, accurateTrackBounce:true, trackLinks:true});
+</script>
+<noscript><div><img src="https://mc.yandex.ru/watch/114300249" style="position:absolute; left:-9999px;" alt="" /></div></noscript>
+<!-- /Yandex.Metrika counter -->
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Manrope:wght@400;500;600;700;800;900&family=Oswald:wght@600;700&display=swap" rel="stylesheet">
@@ -1050,6 +1064,10 @@ function openModal(game = '') {
   // Always start with a completely empty form so user fills it from scratch every time
   resetBookingForm();
 
+  if (typeof ym === 'function') {
+    ym(114300249, 'reachGoal', 'open_booking_modal', { game: game || 'any' });
+  }
+
   modal.classList.add('show');
   document.body.style.overflow = 'hidden';
   navLinks.classList.remove('open');
@@ -1182,6 +1200,9 @@ document.getElementById('regForm').addEventListener('submit', async e => {
   ].filter(Boolean).join('\n');
 
   function openWhatsAppFallback() {
+    if (typeof ym === 'function') {
+      ym(114300249, 'reachGoal', 'whatsapp_fallback_click');
+    }
     window.open(`https://wa.me/77011863190?text=${encodeURIComponent(waFallbackText)}`, '_blank', 'noopener');
     closeModal();
   }
@@ -1231,6 +1252,19 @@ document.getElementById('regForm').addEventListener('submit', async e => {
           descEl.innerHTML = `Команда «<b>${escapeHtml(team)}</b>» (${escapeHtml(players)} чел., капитан <b>${escapeHtml(captain)}</b>) записана на «<b>${escapeHtml(cleanGameTitle)}</b>»!<br>📅 <b>Дата проведения:</b> ${escapeHtml(gameDate)}<br><br>📱 Мы отправили подтверждение на ваш номер <b>${escapeHtml(phone)}</b> в WhatsApp.`;
         }
       }
+
+      if (typeof ym === 'function') {
+        ym(114300249, 'reachGoal', 'booking_success', {
+          team: team,
+          players: players,
+          game: cleanGameTitle,
+          is_no_team: noTeam
+        });
+        if (noTeam) {
+          ym(114300249, 'reachGoal', 'booking_no_team');
+        }
+      }
+
       resetBookingForm();
     }
   } catch (err) {
@@ -1241,6 +1275,20 @@ document.getElementById('regForm').addEventListener('submit', async e => {
   if (!apiSuccess) {
     openWhatsAppFallback();
     resetBookingForm();
+  }
+});
+
+// Analytics tracking for outbound clicks (WhatsApp, Instagram, 2GIS)
+document.addEventListener('click', (e) => {
+  const link = e.target.closest('a');
+  if (!link || typeof ym !== 'function') return;
+  const href = link.href || '';
+  if (href.includes('wa.me') || href.includes('whatsapp.com')) {
+    ym(114300249, 'reachGoal', 'click_whatsapp');
+  } else if (href.includes('instagram.com')) {
+    ym(114300249, 'reachGoal', 'click_instagram');
+  } else if (href.includes('2gis.kz')) {
+    ym(114300249, 'reachGoal', 'click_2gis');
   }
 });
 
