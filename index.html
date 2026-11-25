@@ -5,8 +5,75 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta name="theme-color" content="#120c1f">
 <meta name="description" content="ACTION Киноквиз в Караганде — интеллектуальный баттл для киноманов в караоке-баре «То Место» (пр. Нуркена Абдирова, 5). Собирай команду от 2 до 10 человек или приходи один!">
+<link rel="canonical" href="https://action-kinoquiz-krg.web.app/">
+<meta property="og:type" content="website">
+<meta property="og:locale" content="ru_RU">
+<meta property="og:site_name" content="ACTION Киноквиз Караганда">
+<meta property="og:title" content="ACTION Киноквиз — Караганда | Интеллектуальный баттл для киноманов">
+<meta property="og:description" content="Киноквиз по вторникам в 19:30 в караоке-баре «То Место» (пр. Нуркена Абдирова, 5). Команды 2–10 человек или приходи один — подберём компанию! Взнос 3 000 ₸.">
+<meta property="og:url" content="https://action-kinoquiz-krg.web.app/">
+<meta property="og:image" content="https://action-kinoquiz-krg.web.app/assets/images/logo.png">
+<meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="ACTION Киноквиз — Караганда">
+<meta name="twitter:description" content="Интеллектуальный баттл для киноманов по вторникам в 19:30 в баре «То Место».">
+<meta name="twitter:image" content="https://action-kinoquiz-krg.web.app/assets/images/logo.png">
 <title>ACTION Киноквиз — Караганда | Интеллектуальный баттл для киноманов</title>
 <link rel="icon" type="image/png" href="assets/images/logo.png">
+<script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@graph": [
+    {
+      "@type": "EntertainmentBusiness",
+      "name": "ACTION Киноквиз Караганда",
+      "url": "https://action-kinoquiz-krg.web.app/",
+      "image": "https://action-kinoquiz-krg.web.app/assets/images/logo.png",
+      "telephone": "+77011863190",
+      "priceRange": "3000 KZT",
+      "address": {
+        "@type": "PostalAddress",
+        "streetAddress": "пр. Нуркена Абдирова, д. 5, караоке-бар «То Место»",
+        "addressLocality": "Караганда",
+        "addressCountry": "KZ"
+      },
+      "sameAs": [
+        "https://www.instagram.com/action_kinoquiz_krg/"
+      ]
+    },
+    {
+      "@type": "Event",
+      "name": "ACTION Киноквиз — Новый выпуск Сезона 02",
+      "startDate": "2026-12-01T19:30:00+05:00",
+      "eventAttendanceMode": "https://schema.org/OfflineEventAttendanceMode",
+      "eventStatus": "https://schema.org/EventScheduled",
+      "location": {
+        "@type": "Place",
+        "name": "Караоке-бар «То Место»",
+        "address": {
+          "@type": "PostalAddress",
+          "streetAddress": "пр. Нуркена Абдирова, д. 5",
+          "addressLocality": "Караганда",
+          "addressCountry": "KZ"
+        }
+      },
+      "image": "https://action-kinoquiz-krg.web.app/assets/images/logo.png",
+      "description": "Интеллектуальный киноквиз в Караганде: 6–7 туров, лиги Джедаи и Падаваны, команды 2–10 человек или сборная для одиночных игроков.",
+      "offers": {
+        "@type": "Offer",
+        "url": "https://action-kinoquiz-krg.web.app/",
+        "price": "3000",
+        "priceCurrency": "KZT",
+        "availability": "https://schema.org/InStock"
+      },
+      "organizer": {
+        "@type": "Organization",
+        "name": "ACTION Киноквиз Караганда",
+        "url": "https://action-kinoquiz-krg.web.app/"
+      }
+    }
+  ]
+}
+</script>
 
 <!-- Yandex.Metrika counter -->
 <script type="text/javascript">
@@ -40,11 +107,14 @@
   --radius:16px;
 }
 *{box-sizing:border-box}
-html{scroll-behavior:smooth}
+html{scroll-behavior:smooth;color-scheme:dark}
 body{margin:0;background:var(--bg);color:var(--white);font-family:'Manrope',Arial,sans-serif;overflow-x:hidden}
 a{color:inherit;text-decoration:none}
 button,input,select{font:inherit}
+button,a,input,select{touch-action:manipulation}
 button{cursor:pointer}
+section[id],footer[id]{scroll-margin-top:88px}
+:focus-visible{outline:2px solid var(--yellow);outline-offset:3px}
 .wrap{width:min(1180px,calc(100% - 36px));margin:auto}
 
 /* Header */
@@ -230,7 +300,7 @@ footer{padding:50px 0 25px;background:#09060f;border-top:1px solid var(--line)}
 /* Modal */
 .modal{position:fixed;inset:0;background:rgba(8,5,15,0.85);backdrop-filter:blur(10px);z-index:60;display:none;align-items:center;justify-content:center;padding:18px}
 .modal.show{display:flex}
-.modal-box{background:#191226;border:2px solid var(--purple);border-radius:18px;width:min(500px,100%);max-height:92vh;overflow-y:auto;padding:32px;position:relative;box-shadow:0 30px 90px rgba(0,0,0,0.8)}
+.modal-box{background:#191226;border:2px solid var(--purple);border-radius:18px;width:min(500px,100%);max-height:92vh;overflow-y:auto;overscroll-behavior:contain;padding:32px;position:relative;box-shadow:0 30px 90px rgba(0,0,0,0.8)}
 .close-btn{position:absolute;right:18px;top:16px;background:none;border:0;color:#aaa;font-size:28px;line-height:1}
 .close-btn:hover{color:#fff}
 .modal-box h2{font-family:'Oswald',sans-serif;font-size:32px;text-transform:uppercase;margin:6px 0}
@@ -239,7 +309,9 @@ footer{padding:50px 0 25px;background:#09060f;border-top:1px solid var(--line)}
 .field label{display:block;color:var(--yellow);font-size:10px;font-weight:900;text-transform:uppercase;letter-spacing:1px;margin-bottom:6px}
 .field input,.field select{width:100%;background:#0e0a16;border:1px solid #3d2a58;color:#fff;padding:13px 14px;border-radius:8px;outline:none}
 .field input:focus,.field select:focus{border-color:var(--yellow);box-shadow:0 0 10px rgba(255,199,0,0.2)}
+.field-error{color:#f87171;font-size:12px;font-weight:600;margin-top:6px;display:none}
 .form-tip{font-size:11px;color:#877b9d;line-height:1.5;margin-bottom:16px}
+@media (prefers-reduced-motion: reduce){*,*::before,*::after{animation-duration:0.01ms!important;transition-duration:0.01ms!important;scroll-behavior:auto!important}}
 
 /* Responsive */
 @media(max-width:960px){
@@ -277,14 +349,16 @@ footer{padding:50px 0 25px;background:#09060f;border-top:1px solid var(--line)}
 
 <header>
   <div class="wrap nav">
-    <a class="brand" href="#top">
-      <img src="assets/images/logo.png" alt="ACTION Киноквиз" class="brand-img">
+    <div class="brand">
+      <a href="#top" aria-label="ACTION Киноквиз — наверх">
+        <img src="assets/images/logo.png" alt="ACTION Киноквиз" class="brand-img" width="50" height="50">
+      </a>
       <div>
-        <div class="brand-title">ACTION КИНОКВИЗ</div>
+        <a href="#top" class="brand-title" style="display:block">ACTION КИНОКВИЗ</a>
         <span class="brand-sub">КАРАГАНДА · 2 СЕЗОН</span>
         <div class="brand-loc">Караоке-бар «То Место» · <a href="https://2gis.kz/karaganda/search/%D0%A2%D0%BE%20%D0%BC%D0%B5%D1%81%D1%82%D0%BE%20%D0%9D%D1%83%D1%80%D0%BA%D0%B5%D0%BD%D0%B0%20%D0%90%D0%B1%D0%B4%D0%B8%D1%80%D0%BE%D0%B2%D0%B0%2C%205" target="_blank" rel="noopener" style="color:var(--yellow);text-decoration:underline">2GIS ↗</a></div>
       </div>
-    </a>
+    </div>
     <nav class="links" id="navLinks">
       <a href="#schedule">Афиша игр</a>
       <a href="#leagues">Лиги и сезон</a>
@@ -337,8 +411,9 @@ footer{padding:50px 0 25px;background:#09060f;border-top:1px solid var(--line)}
         </div>
 
         <div class="hero-actions">
-          <a class="btn dark" href="#schedule">Смотреть афишу игр ↓</a>
-          <a class="btn dark" href="https://www.instagram.com/action_kinoquiz_krg/" target="_blank" rel="noopener">Instagram @action_kinoquiz_krg ↗</a>
+          <button class="btn" type="button" data-open>Забронировать стол →</button>
+          <a class="btn dark" href="#schedule">Смотреть афишу ↓</a>
+          <a class="btn dark" href="https://www.instagram.com/action_kinoquiz_krg/" target="_blank" rel="noopener">Instagram ↗</a>
         </div>
       </div>
 
@@ -346,21 +421,21 @@ footer{padding:50px 0 25px;background:#09060f;border-top:1px solid var(--line)}
       <div class="poster-wrap">
         <!-- AUTOSYNC:HERO_POSTER_START -->
         <div class="poster">
-          <div class="poster-ribbon">СПЕЦВЫПУСК</div>
+          <div class="poster-ribbon">СЕЗОН 02</div>
           <div class="poster-head">
             <span>Ближайшая игра</span>
-            <span>ВТ · 24 НОЯБРЯ 2026</span>
+            <span>ВТ · 01 ДЕКАБРЯ 2026</span>
           </div>
           <div class="poster-art">
-            <img src="assets/images/poster-anime-naruto.jpg" alt="Афиша Культовые Аниме" width="1328" height="906">
+            <img src="assets/images/poster-20261113-DfsRS-0hNQ-.jpg" alt="Афиша ACTION Киноквиз — Новый выпуск Сезона 02" width="1328" height="906" fetchpriority="high">
             <div class="poster-overlay"></div>
           </div>
-          <div class="poster-title">КУЛЬТОВЫЕ АНИМЕ</div>
+          <div class="poster-title">НОВЫЙ ВЫПУСК<br>СЕЗОНА 02</div>
           <div class="poster-footer">
             <span>⌖ 19:30 · <a href="https://2gis.kz/karaganda/search/%D0%A2%D0%BE%20%D0%BC%D0%B5%D1%81%D1%82%D0%BE%20%D0%9D%D1%83%D1%80%D0%BA%D0%B5%D0%BD%D0%B0%20%D0%90%D0%B1%D0%B4%D0%B8%D1%80%D0%BE%D0%B2%D0%B0%2C%205" target="_blank" rel="noopener" style="color:var(--yellow);text-decoration:underline">Бар «То Место» (2GIS ↗)</a></span>
             <b>3 000 ₸</b>
           </div>
-          <button class="btn poster-btn" type="button" data-game="Культовые Аниме (24.11 в 19:30)">Забронировать стол →</button>
+          <button class="btn poster-btn" type="button" data-game="Новый выпуск Сезона 02 (01.12 в 19:30)">Забронировать стол →</button>
         </div>
         <!-- AUTOSYNC:HERO_POSTER_END -->
       </div>
@@ -380,15 +455,15 @@ footer{padding:50px 0 25px;background:#09060f;border-top:1px solid var(--line)}
 
       <div class="games" id="games">
         <!-- AUTOSYNC:GAMES_START -->
-        <article class="game featured" data-category="anime">
-          <div class="game-top"><strong>ВТ, 24 НОЯБРЯ · 19:30</strong><span>ОТКРЫТА ЗАПИСЬ</span></div>
+        <article class="game featured" data-category="season">
+          <div class="game-top"><strong>ВТ, 01 ДЕКАБРЯ · 19:30</strong><span>ОТКРЫТА ПРЕДЗАПИСЬ</span></div>
           <div class="game-thumb">
-            <img src="assets/images/poster-anime-naruto.jpg" alt="Афиша Культовые Аниме">
+            <img src="assets/images/poster-20261113-DfsRS-0hNQ-.jpg" alt="Афиша ACTION Киноквиз — Новый выпуск Сезона 02" width="960" height="540" loading="lazy">
             <div class="game-thumb-overlay"></div>
           </div>
           <div class="game-body">
-            <div class="game-tag">Тематический спецвыпуск</div>
-            <h3>Культовые Аниме</h3>
+            <div class="game-tag">Сезон 02 · Следующая игра</div>
+            <h3>Новый выпуск Сезона 02</h3>
             <div class="game-info">
               <span>◷ 19:30 (ВТ)</span>
               <span>⌖ То Место</span>
@@ -396,9 +471,9 @@ footer{padding:50px 0 25px;background:#09060f;border-top:1px solid var(--line)}
               <span>₸ 3 000 / чел.</span>
             </div>
             <p style="font-size:12px;color:#a99ec0;margin:0 0 16px;line-height:1.6">
-              Миядзаки, Наруто, Атака титанов, Клинок рассекающий демонов, Тетрадь смерти, Евангелион и шедевры мировой анимации.
+              Точная тема выпуска скоро появится в нашем Instagram — но занять лучший стол для команды можно уже сейчас!
             </p>
-            <button class="btn" type="button" data-game="Культовые Аниме (24.11 в 19:30)">Забронировать стол →</button>
+            <button class="btn" type="button" data-game="Новый выпуск Сезона 02 (01.12 в 19:30)">Забронировать стол →</button>
           </div>
         </article>
         <!-- AUTOSYNC:GAMES_END -->
@@ -602,7 +677,7 @@ footer{padding:50px 0 25px;background:#09060f;border-top:1px solid var(--line)}
         <article class="result-card">
           <div class="result-img-wrap">
             <span class="result-badge">07 ноября · Сезон 02 Эпизод 04</span>
-            <img src="assets/images/result-20261107-DfdGpDnHE5G-0.jpg" alt="Итоги 4 игры: Halloween Vibes 🎃" width="960" height="720">
+            <img src="assets/images/result-20261107-DfdGpDnHE5G-0.jpg" alt="Итоги 4 игры: Halloween Vibes 🎃" width="960" height="720" loading="lazy">
           </div>
           <div class="result-body">
             <h3>Итоги 4 игры: Halloween Vibes 🎃</h3>
@@ -620,7 +695,7 @@ footer{padding:50px 0 25px;background:#09060f;border-top:1px solid var(--line)}
         <article class="result-card">
           <div class="result-img-wrap">
             <span class="result-badge">07 ноября · Спецвыпуск</span>
-            <img src="assets/images/result-20261107-DfdGPMHHEj2-0.jpg" alt="Итоги: Вселенная Гарри Поттера ⚡" width="960" height="720">
+            <img src="assets/images/result-20261107-DfdGPMHHEj2-0.jpg" alt="Итоги: Вселенная Гарри Поттера ⚡" width="960" height="720" loading="lazy">
           </div>
           <div class="result-body">
             <h3>Итоги: Вселенная Гарри Поттера ⚡</h3>
@@ -638,7 +713,7 @@ footer{padding:50px 0 25px;background:#09060f;border-top:1px solid var(--line)}
         <article class="result-card">
           <div class="result-img-wrap">
             <span class="result-badge">07 ноября · Сезон 02 Эпизод 03</span>
-            <img src="assets/images/result-20261107-DfdDXvBHFcF-0.jpg" alt="Итоги 3 игры: Сезон 02 Эпизод 03 🎬" width="960" height="720">
+            <img src="assets/images/result-20261107-DfdDXvBHFcF-0.jpg" alt="Итоги 3 игры: Сезон 02 Эпизод 03 🎬" width="960" height="720" loading="lazy">
           </div>
           <div class="result-body">
             <h3>Итоги 3 игры: Сезон 02 Эпизод 03 🎬</h3>
@@ -763,7 +838,7 @@ footer{padding:50px 0 25px;background:#09060f;border-top:1px solid var(--line)}
     <div class="foot-grid">
       <div>
         <a class="brand" href="#top">
-          <img src="assets/images/logo.png" alt="ACTION Киноквиз" class="brand-img">
+          <img src="assets/images/logo.png" alt="ACTION Киноквиз" class="brand-img" width="50" height="50" loading="lazy">
           <div>
             <div class="brand-title">ACTION КИНОКВИЗ</div>
             <span class="brand-sub">КАРАГАНДА · 2026</span>
@@ -858,13 +933,14 @@ footer{padding:50px 0 25px;background:#09060f;border-top:1px solid var(--line)}
         <div class="field">
           <label for="phone">Номер WhatsApp</label>
           <input id="phone" name="phone" type="tel" value="+7 " placeholder="+7 (7XX) XXX-XX-XX" autocomplete="tel" maxlength="18" required>
+          <div id="phoneError" class="field-error" role="alert" aria-live="polite"></div>
         </div>
 
         <div class="field">
           <label for="game">Выберите игру</label>
           <select id="game" name="game" required>
             <!-- AUTOSYNC:SELECT_GAMES_START -->
-          <option value="Культовые Аниме (24.11 в 19:30)">Культовые Аниме (ВТ, 24 ноября в 19:30) — Ближайшая игра</option>
+          <option value="Новый выпуск Сезона 02 (01.12 в 19:30)">Новый выпуск Сезона 02 (ВТ, 01 декабря в 19:30) — Ближайшая игра</option>
         <!-- AUTOSYNC:SELECT_GAMES_END -->
           </select>
         </div>
@@ -917,6 +993,29 @@ function escapeHtml(str) {
     .replace(/"/g, '&quot;');
 }
 
+// Persist UTM params across the session for booking attribution
+(function captureUtmParams() {
+  try {
+    const params = new URLSearchParams(window.location.search);
+    const parts = [];
+    for (const key of ['utm_source', 'utm_medium', 'utm_campaign']) {
+      const val = params.get(key);
+      if (val) parts.push(`${key.replace('utm_', '')}=${val.slice(0, 40)}`);
+    }
+    if (parts.length) {
+      sessionStorage.setItem('kinoquiz_utm', parts.join(', '));
+    }
+  } catch (e) {}
+})();
+
+function getSavedUtmSummary() {
+  try {
+    return sessionStorage.getItem('kinoquiz_utm') || '';
+  } catch (e) {
+    return '';
+  }
+}
+
 function resetBookingForm() {
   const form = document.getElementById('regForm');
   if (form) form.reset();
@@ -933,6 +1032,8 @@ function resetBookingForm() {
   if (noTeamCb) noTeamCb.checked = false;
   const phoneInp = document.getElementById('phone');
   if (phoneInp) phoneInp.value = '+7 ';
+  const phoneErr = document.getElementById('phoneError');
+  if (phoneErr) { phoneErr.textContent = ''; phoneErr.style.display = 'none'; }
   const playersSel = document.getElementById('players');
   if (playersSel) playersSel.selectedIndex = 0;
   const leagueSel = document.getElementById('league');
@@ -987,6 +1088,8 @@ function attachPhoneMask(el) {
   });
 
   el.addEventListener('input', () => {
+    const phoneErr = document.getElementById('phoneError');
+    if (phoneErr) { phoneErr.textContent = ''; phoneErr.style.display = 'none'; }
     const raw = el.value;
     const digits = raw.replace(/\D/g, '');
     if (digits.length === 0) {
@@ -1096,7 +1199,11 @@ document.getElementById('regForm').addEventListener('submit', async e => {
   const phone = String(d.get('phone') || '').trim();
   const phoneDigits = phone.replace(/\D/g, '');
   if (phoneDigits.length < 11) {
-    alert('Пожалуйста, введите полный номер телефона WhatsApp (+7 7XX XXX-XX-XX)');
+    const phoneErr = document.getElementById('phoneError');
+    if (phoneErr) {
+      phoneErr.textContent = 'Введите полный номер WhatsApp в формате +7 (7XX) XXX-XX-XX';
+      phoneErr.style.display = 'block';
+    }
     const phoneEl = document.getElementById('phone');
     if (phoneEl) phoneEl.focus();
     return;
@@ -1123,7 +1230,7 @@ document.getElementById('regForm').addEventListener('submit', async e => {
   }
 
   if (!gameDate) {
-    gameDate = rawGame.toLowerCase().includes('аним') ? 'ВТ, 24 ноября в 19:30' : 'ВТ, 17 ноября в 19:30';
+    gameDate = 'Ближайший вторник в 19:30';
   }
 
   const submitBtn = document.getElementById('regSubmitBtn');
@@ -1189,7 +1296,8 @@ document.getElementById('regForm').addEventListener('submit', async e => {
   const apiBase = isDirectHost ? '' : (window.KINOQUIZ_API_URL || 'https://136-71-1-182.sslip.io');
   const apiUrl = `${apiBase}/api/public/book`;
 
-  const notesText = (noTeam ? '[ИЩЕТ КОМАНДУ] ' : '') + `Лига: ${league}`;
+  const utmTag = getSavedUtmSummary();
+  const notesText = (noTeam ? '[ИЩЕТ КОМАНДУ] ' : '') + `Лига: ${league}` + (utmTag ? ` | UTM: ${utmTag}` : '');
 
   let apiSuccess = false;
   try {
@@ -1235,7 +1343,8 @@ document.getElementById('regForm').addEventListener('submit', async e => {
           team: team,
           players: players,
           game: cleanGameTitle,
-          is_no_team: noTeam
+          is_no_team: noTeam,
+          utm: utmTag || 'direct'
         });
         if (noTeam) {
           ym(114300249, 'reachGoal', 'booking_no_team');
@@ -1246,6 +1355,9 @@ document.getElementById('regForm').addEventListener('submit', async e => {
     }
   } catch (err) {
     console.warn('Direct server booking failed or blocked. Falling back to WhatsApp:', err);
+    if (typeof ym === 'function') {
+      ym(114300249, 'reachGoal', 'booking_api_error');
+    }
   }
 
   // Graceful fallback to WhatsApp if direct server call didn't succeed
